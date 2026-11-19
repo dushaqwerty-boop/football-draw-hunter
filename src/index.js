@@ -29,7 +29,7 @@ async function fetchJson(url) {
   try {
     const response = await fetch(url, { signal: controller.signal });
     if (!response.ok) {
-      throw new Error("HTTP " + response.status + " при запросе " + url);
+      throw new Error("HTTP " + response.status + " при запросе внешнего источника");
     }
     return await response.json();
   } finally {
@@ -220,7 +220,7 @@ async function getLeagueOdds(league) {
     const data = await fetchJson(url);
     return Array.isArray(data) ? data : [];
   } catch (error) {
-    console.error("Коэффициенты " + league.oddsKey + ": " + error.message);
+    console.error("Не удалось получить коэффициенты для " + league.oddsKey + " (" + error.name + ")");
     return [];
   }
 }
