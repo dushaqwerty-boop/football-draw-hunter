@@ -23,10 +23,46 @@ const WELCOME = [
 ].join("\n");
 
 export default async function handler(req, res) {
+  if (req.method === "GET") {
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    if (!token) {
+      res.status(200).json({ ok: false, tokenConfigured: false });
+      return;
+    }
+    try {
+      const [meResponse, webhookResponse] = await Promise.all([
+        fetch("https://api.telegram.org/bot" + token + "/getMe"),
+        fetch("https://api.telegram.org/bot" + token + "/getWebhookInfo")
+      ]);
+      const [me, webhook] = await Promise.all([meResponse.json(), webhookResponse.json()]);
+      res.status(200).json({
+        ok: true,
+        tokenConfigured: true,
+        bot: me.ok ? me.result.username : null,
+        getMeOk: me.ok,
+        webhookOk: webhook.ok,
+        webhook: webhook.ok ? {
+          url: webhook.result.url,
+          hasCustomCertificate: webhook.result.has_custom_certificate,
+          pendingUpdateCount: webhook.result.pending_update_count,
+          lastErrorDate: webhook.result.last_error_date || null,
+          lastErrorMessage: webhook.result.last_error_message || null,
+          allowedUpdates: webhook.result.allowed_updates || null
+        } : null,
+        telegramError: !me.ok ? me.description : (!webhook.ok ? webhook.description : null)
+      });
+    } catch (error) {
+      res.status(200).json({ ok: false, tokenConfigured: true, error: error.message });
+    }
+    return;
+  }
+
   if (req.method !== "POST") {
     res.status(405).send("Method Not Allowed");
     return;
   }
+
+  console.info("Telegram webhook update received");
 
   const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
   const receivedSecret = req.headers["x-telegram-bot-api-secret-token"];
