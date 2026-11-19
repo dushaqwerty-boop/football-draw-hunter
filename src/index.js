@@ -1,16 +1,17 @@
 const TOKEN = (process.env.TELEGRAM_BOT_TOKEN || "").trim();
 const CHAT_ID = (process.env.TELEGRAM_CHAT_ID || "").trim();
+const ODDS_API_KEY = (process.env.ODDS_API_KEY || "").trim();
 
 const LEAGUES = [
-  { id: "eng.1", name: "Англия — Премьер-лига" },
-  { id: "esp.1", name: "Испания — Ла Лига" },
-  { id: "ger.1", name: "Германия — Бундеслига" },
-  { id: "ita.1", name: "Италия — Серия А" },
-  { id: "fra.1", name: "Франция — Лига 1" },
-  { id: "ned.1", name: "Нидерланды — Эредивизи" },
-  { id: "por.1", name: "Португалия — Примейра" },
-  { id: "uefa.champions", name: "Лига чемпионов" },
-  { id: "uefa.europa", name: "Лига Европы" }
+  { id: "eng.1", name: "Англия — Премьер-лига", oddsKey: "soccer_epl" },
+  { id: "esp.1", name: "Испания — Ла Лига", oddsKey: "soccer_spain_la_liga" },
+  { id: "ger.1", name: "Германия — Бундеслига", oddsKey: "soccer_germany_bundesliga" },
+  { id: "ita.1", name: "Италия — Серия А", oddsKey: "soccer_italy_serie_a" },
+  { id: "fra.1", name: "Франция — Лига 1", oddsKey: "soccer_france_ligue_one" },
+  { id: "ned.1", name: "Нидерланды — Эредивизи", oddsKey: "soccer_netherlands_eredivisie" },
+  { id: "por.1", name: "Португалия — Примейра", oddsKey: "soccer_portugal_primeira_liga" },
+  { id: "uefa.champions", name: "Лига чемпионов", oddsKey: "soccer_uefa_champs_league" },
+  { id: "uefa.europa", name: "Лига Европы", oddsKey: "soccer_uefa_europa_league" }
 ];
 
 const FORM_SIZE = 8;
@@ -203,6 +204,81 @@ function analyseMatch(match, results) {
   };
 }
 
+
+function normalizeTeamName(name) {
+  return String(name || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase().replace(/\b(fc|cf|afc|sc|ac|as|ssc|club)\b/g, "")
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+async function getLeagueOdds(league) {
+  if (!ODDS_API_KEY) return [];
+  const url = "https://api.the-odds-api.com/v4/sports/" + league.oddsKey +
+    "/odds?regions=eu&markets=h2h&oddsFormat=decimal&dateFormat=iso&apiKey=" +
+    encodeURIComponent(ODDS_API_KEY);
+  try {
+    const data = await fetchJson(url);
+    return Array.isArray(data) ? data : [];
+  } catch (error) {
+    console.error("Коэффициенты " + league.oddsKey + ": " + error.message);
+    return [];
+  }
+}
+
+function oddsEventMatchesPick(event, pick) {
+  const home = normalizeTeamName(event.home_team);
+  const away = normalizeTeamName(event.away_team);
+  const pickHome = normalizeTeamName(pick.homeName);
+  const pickAway = normalizeTeamName(pick.awayName);
+  const sameTeams = home === pickHome && away === pickAway;
+  const oddsTime = new Date(event.commence_time).getTime();
+  return sameTeams && Number.isFinite(oddsTime) &&
+    Math.abs(oddsTime - pick.date.getTime()) <= 4 * 60 * 60 * 1000;
+}
+
+function bookmakerDrawQuotes(event) {
+  const quotes = [];
+  for (const bookmaker of event.bookmakers || []) {
+    const market = (bookmaker.markets || []).find(item => item.key === "h2h");
+    if (!market) continue;
+    const outcomes = market.outcomes || [];
+    const draw = outcomes.find(item => ["draw", "tie"].includes(normalizeTeamName(item.name)));
+    const home = outcomes.find(item => normalizeTeamName(item.name) === normalizeTeamName(event.home_team));
+    const away = outcomes.find(item => normalizeTeamName(item.name) === normalizeTeamName(event.away_team));
+    if (!draw || !home || !away) continue;
+    const prices = [draw, home, away].map(item => Number(item.price));
+    if (prices.some(price => !Number.isFinite(price) || price <= 1)) continue;
+    const inverseTotal = prices.reduce((sum, price) => sum + 1 / price, 0);
+    quotes.push({
+      bookmaker: bookmaker.title || bookmaker.key,
+      drawOdds: prices[0],
+      noVigDrawProbability: (1 / prices[0]) / inverseTotal,
+      updatedAt: market.last_update || bookmaker.last_update || null
+    });
+  }
+  return quotes;
+}
+
+function attachOdds(pick, oddsEvents) {
+  const quotes = oddsEvents.filter(event => oddsEventMatchesPick(event, pick))
+    .flatMap(bookmakerDrawQuotes);
+  if (!quotes.length) return { ...pick, odds: null };
+  const best = quotes.reduce((a, b) => b.drawOdds > a.drawOdds ? b : a);
+  const marketProbability = average(quotes.map(item => item.noVigDrawProbability), pick.probability);
+  return {
+    ...pick,
+    odds: {
+      bestBookmaker: best.bookmaker,
+      bestDrawOdds: best.drawOdds,
+      bookmakerCount: quotes.length,
+      marketProbability,
+      edge: pick.probability - marketProbability,
+      expectedValue: pick.probability * best.drawOdds - 1,
+      updatedAt: best.updatedAt
+    }
+  };
+}
+
 function formatDate(date) {
   return new Intl.DateTimeFormat("ru-RU", {
     timeZone: "Europe/Riga",
@@ -226,6 +302,17 @@ function formatPick(pick, index) {
     "🧾 Покрытие данными: " + pick.reliability.score + "/100 (" + pick.reliability.label + ")",
     "📐 Справедливый коэффициент модели: " + fairOdds,
     "🎯 Ориентир для запаса 5%: от " + valueOdds,
+    ...(pick.odds ? [
+      "💹 Лучшая котировка на ничью: " + pick.odds.bestDrawOdds.toFixed(2) + " (" + pick.odds.bestBookmaker + ")",
+      "Рынок без маржи: " + (pick.odds.marketProbability * 100).toFixed(1).replace(".", ",") +
+        "% | перевес модели: " + (pick.odds.edge >= 0 ? "+" : "") +
+        (pick.odds.edge * 100).toFixed(1).replace(".", ",") + " п.п.",
+      "Ожидаемая доходность по лучшей цене: " +
+        (pick.odds.expectedValue >= 0 ? "+" : "") +
+        (pick.odds.expectedValue * 100).toFixed(1).replace(".", ",") + "%",
+      "Обновлено: " + (pick.odds.updatedAt || "время не указано") +
+        " | котировок: " + pick.odds.bookmakerCount
+    ] : ["💹 Коэффициенты: нет подтверждённой котировки для этого матча"]),
     "Форма (5 матчей): " + pick.homeName + " " + (pick.home.form || "н/д") +
       " | " + pick.awayName + " " + (pick.away.form || "н/д"),
     "Сыграно в выборке: " + pick.home.matches + " / " + pick.away.matches +
@@ -257,7 +344,7 @@ async function main() {
   console.log("Получено событий: " + allEvents.length +
     "; завершено: " + completed.length + "; впереди: " + upcoming.length);
 
-  const picks = upcoming
+  let picks = upcoming
     .map(match => analyseMatch(match, completed.filter(result => result.leagueId === match.leagueId)))
     .filter(Boolean)
     .filter(pick => pick.probability >= MIN_DRAW_PROBABILITY)
@@ -269,10 +356,26 @@ async function main() {
     console.log(pick.homeName + " — " + pick.awayName + ": " + (pick.probability * 100).toFixed(1) + "%");
   }
 
+  let oddsStatus = ODDS_API_KEY ? "запрос выполняется" : "не подключены — нужен ODDS_API_KEY";
+  if (ODDS_API_KEY && picks.length) {
+    console.log("Загрузка коэффициентов из The Odds API...");
+    const oddsByLeague = await Promise.all(LEAGUES.map(getLeagueOdds));
+    picks = picks.map(pick => {
+      const leagueIndex = LEAGUES.findIndex(league => league.id === pick.leagueId);
+      return attachOdds(pick, oddsByLeague[leagueIndex] || []);
+    });
+    oddsStatus = "котировки найдены для " + picks.filter(pick => pick.odds).length +
+      " из " + picks.length + " прогнозов";
+    console.log(oddsStatus);
+  } else if (ODDS_API_KEY) {
+    oddsStatus = "ключ задан; сегодня нет кандидатов для проверки";
+  }
+
   const header = "⚽ FOOTBALL DRAW HUNTER\n" +
     "Анализ на ближайшие 10 дней\n" +
     "Турниров проверено: " + LEAGUES.length + "\n" +
-    "Завершённых матчей в базе: " + completed.length + "\n\n";
+    "Завершённых матчей в базе: " + completed.length + "\n" +
+    "Букмекерские коэффициенты: " + oddsStatus + "\n\n";
 
   if (!picks.length) {
     await sendTelegram(header +
