@@ -40,6 +40,37 @@ async function fetchJson(url) {
   }
 }
 
+
+async function configureTelegramProfile() {
+  const profile = [
+    ["setMyName", { name: "X-FACTOR | Прогнозы на ничью" }],
+    ["setDescription", {
+      description: "X-FACTOR — аналитика футбольных матчей и кандидаты на ничью. Статистика, модельная вероятность и актуальные букмекерские коэффициенты. Прогнозы не гарантируют результат."
+    }],
+    ["setShortDescription", {
+      short_description: "Футбольная аналитика и прогнозы на ничью. Вероятности и коэффициенты — без гарантий результата."
+    }]
+  ];
+
+  for (const [method, payload] of profile) {
+    try {
+      const response = await fetch("https://api.telegram.org/bot" + TOKEN + "/" + method, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.ok) {
+        console.error("Не удалось обновить профиль Telegram (" + method + "): HTTP " + response.status);
+      } else {
+        console.log("Профиль Telegram обновлён: " + method);
+      }
+    } catch (error) {
+      console.error("Ошибка обновления профиля Telegram (" + method + "): " + error.name);
+    }
+  }
+}
+
 async function sendTelegram(message) {
   const response = await fetch(
     "https://api.telegram.org/bot" + TOKEN + "/sendMessage",
@@ -459,6 +490,7 @@ function formatPick(pick, index) {
 }
 
 async function main() {
+  await configureTelegramProfile();
   const now = new Date();
   const testFrom = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
   const from = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000);
@@ -532,7 +564,7 @@ async function main() {
       (pick.odds ? "; EV " + (pick.odds.expectedValue * 100).toFixed(1) + "%" : ""));
   }
 
-  const header = "⚽ FOOTBALL DRAW HUNTER\n" +
+  const header = "⚽ X-FACTOR | ПРОГНОЗЫ НА НИЧЬЮ\n" +
     "Анализ на ближайшие 10 дней\n" +
     "Турниров проверено: " + LEAGUES.length + "\n" +
     "Завершённых матчей в базе: " + completed.length + "\n" +
@@ -564,7 +596,7 @@ async function main() {
 main().catch(async error => {
   console.error(error);
   try {
-    await sendTelegram("⚠️ Football Draw Hunter: ошибка анализа.\n" +
+    await sendTelegram("⚠️ X-FACTOR: ошибка анализа.\n" +
       error.message.slice(0, 500) + "\nПроверь GitHub Actions.");
   } catch (telegramError) {
     console.error("Не удалось отправить сообщение об ошибке:", telegramError.message);
