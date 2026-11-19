@@ -1,5 +1,5 @@
-const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const TOKEN = (process.env.TELEGRAM_BOT_TOKEN || "").trim();
+const CHAT_ID = (process.env.TELEGRAM_CHAT_ID || "").trim();
 
 const LEAGUES = [
   { id: "eng.1", name: "Англия — Премьер-лига" },
@@ -92,15 +92,27 @@ function parseEvent(event, league) {
 }
 
 async function getLeagueEvents(league, from, to) {
-  const url = "https://site.api.espn.com/apis/site/v2/sports/soccer/" +
-    league.id + "/scoreboard?dates=" + dateStamp(from) + "-" + dateStamp(to) + "&limit=1000";
-  try {
-    const data = await fetchJson(url);
-    return (data.events || []).map(event => parseEvent(event, league)).filter(Boolean);
-  } catch (error) {
-    console.error("Лига " + league.id + ": " + error.message);
-    return [];
+  const all = [];
+  const cursor = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate()));
+  const last = new Date(Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), to.getUTCDate()));
+
+  // ESPN scoreboard rejects long date windows. Query in seven-day slices.
+  while (cursor <= last) {
+    const chunkEnd = new Date(Math.min(
+      cursor.getTime() + 6 * 24 * 60 * 60 * 1000,
+      last.getTime()
+    ));
+    const url = "https://site.api.espn.com/apis/site/v2/sports/soccer/" +
+      league.id + "/scoreboard?dates=" + dateStamp(cursor) + "-" + dateStamp(chunkEnd);
+    try {
+      const data = await fetchJson(url);
+      all.push(...(data.events || []).map(event => parseEvent(event, league)).filter(Boolean));
+    } catch (error) {
+      console.error("Лига " + league.id + " (" + dateStamp(cursor) + "): " + error.message);
+    }
+    cursor.setUTCDate(cursor.getUTCDate() + 7);
   }
+  return all;
 }
 
 function average(values, fallback) {
@@ -204,7 +216,7 @@ function formatPick(pick, index) {
 
 async function main() {
   const now = new Date();
-  const from = new Date(now.getTime() - 75 * 24 * 60 * 60 * 1000);
+  const from = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
   const to = new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000);
 
   console.log("Загрузка матчей по " + LEAGUES.length + " турнирам...");
