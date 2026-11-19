@@ -539,7 +539,7 @@ function formatBacktest(stats) {
   ];
 
   return [
-    "🧪 Историческая проверка модели (последние 180 дней; только матчи с покрытием от " +
+    "🧪 Историческая проверка модели (последние 270 дней после 95-дневного периода накопления истории; только матчи с покрытием от " +
       MIN_DATA_RELIABILITY + "/100)",
     "Матчей, которые можно было оценить: " + stats.evaluated,
     ...formatCalibration("Калибровка исходной модели:", stats.calibration.baseline),
@@ -636,8 +636,9 @@ function formatPick(pick, index) {
 async function main() {
   await configureTelegramProfile();
   const now = new Date();
-  const from = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000);
-  const testFrom = from;
+  // Load a full year so teams have a warm-up history before the 270-day test window.
+  const from = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+  const testFrom = new Date(now.getTime() - 270 * 24 * 60 * 60 * 1000);
   const to = new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000);
 
   console.log("Загрузка матчей по " + LEAGUES.length + " турнирам...");
