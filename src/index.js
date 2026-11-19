@@ -17,6 +17,8 @@ const LEAGUES = [
 const FORM_SIZE = 8;
 const MAX_PICKS = 3;
 const MIN_DRAW_PROBABILITY = 0.265;
+const MIN_DATA_RELIABILITY = 55;
+const MIN_EXPECTED_VALUE = 0.03;
 const REQUEST_TIMEOUT_MS = 15000;
 
 if (!TOKEN || !CHAT_ID) {
@@ -344,31 +346,52 @@ async function main() {
   console.log("Получено событий: " + allEvents.length +
     "; завершено: " + completed.length + "; впереди: " + upcoming.length);
 
-  let picks = upcoming
+  const statisticalCandidates = upcoming
     .map(match => analyseMatch(match, completed.filter(result => result.leagueId === match.leagueId)))
     .filter(Boolean)
     .filter(pick => pick.probability >= MIN_DRAW_PROBABILITY)
-    .sort((a, b) => b.probability - a.probability)
-    .slice(0, MAX_PICKS);
+    .filter(pick => pick.reliability.score >= MIN_DATA_RELIABILITY)
+    .sort((a, b) => b.probability - a.probability);
 
-  console.log("Кандидатов после статистической фильтрации: " + picks.length);
-  for (const pick of picks) {
-    console.log(pick.homeName + " — " + pick.awayName + ": " + (pick.probability * 100).toFixed(1) + "%");
+  console.log("Кандидатов после статистической фильтрации: " + statisticalCandidates.length);
+
+  let picks = [];
+  let oddsStatus = ODDS_API_KEY ? "ожидают проверки" : "не подключены — нужен ODDS_API_KEY";
+  if (ODDS_API_KEY && statisticalCandidates.length) {
+    const candidateLeagueIds = new Set(statisticalCandidates.map(pick => pick.leagueId));
+    const leaguesToCheck = LEAGUES.filter(league => candidateLeagueIds.has(league.id));
+    console.log("Загрузка коэффициентов для " + leaguesToCheck.length + " турниров...");
+    const oddsResults = await Promise.all(leaguesToCheck.map(getLeagueOdds));
+    const oddsByLeague = new Map(leaguesToCheck.map((league, index) => [league.id, oddsResults[index]]));
+    const evaluated = statisticalCandidates.map(pick =>
+      attachOdds(pick, oddsByLeague.get(pick.leagueId) || [])
+    );
+
+    picks = evaluated
+      .filter(pick => pick.odds && pick.odds.expectedValue >= MIN_EXPECTED_VALUE)
+      .sort((a, b) =>
+        b.odds.expectedValue - a.odds.expectedValue ||
+        b.probability - a.probability
+      )
+      .slice(0, MAX_PICKS);
+
+    oddsStatus = "котировки найдены для " + evaluated.filter(pick => pick.odds).length +
+      " из " + evaluated.length + " кандидатов";
+    console.log(oddsStatus);
+    console.log("Прогнозов с расчётным перевесом не менее " +
+      (MIN_EXPECTED_VALUE * 100).toFixed(0) + "%: " + picks.length);
+  } else if (ODDS_API_KEY) {
+    oddsStatus = "нет кандидатов для проверки";
+  } else {
+    // Without verified bookmaker prices, show a statistical watchlist only.
+    picks = statisticalCandidates.slice(0, MAX_PICKS);
   }
 
-  let oddsStatus = ODDS_API_KEY ? "запрос выполняется" : "не подключены — нужен ODDS_API_KEY";
-  if (ODDS_API_KEY && picks.length) {
-    console.log("Загрузка коэффициентов из The Odds API...");
-    const oddsByLeague = await Promise.all(LEAGUES.map(getLeagueOdds));
-    picks = picks.map(pick => {
-      const leagueIndex = LEAGUES.findIndex(league => league.id === pick.leagueId);
-      return attachOdds(pick, oddsByLeague[leagueIndex] || []);
-    });
-    oddsStatus = "котировки найдены для " + picks.filter(pick => pick.odds).length +
-      " из " + picks.length + " прогнозов";
-    console.log(oddsStatus);
-  } else if (ODDS_API_KEY) {
-    oddsStatus = "ключ задан; сегодня нет кандидатов для проверки";
+  console.log("Итоговых прогнозов: " + picks.length);
+  for (const pick of picks) {
+    console.log(pick.homeName + " — " + pick.awayName + ": " +
+      (pick.probability * 100).toFixed(1) + "%" +
+      (pick.odds ? "; EV " + (pick.odds.expectedValue * 100).toFixed(1) + "%" : ""));
   }
 
   const header = "⚽ FOOTBALL DRAW HUNTER\n" +
@@ -378,10 +401,17 @@ async function main() {
     "Букмекерские коэффициенты: " + oddsStatus + "\n\n";
 
   if (!picks.length) {
-    await sendTelegram(header +
-      "Сегодня сильных кандидатов по заданным критериям нет.\n\n" +
-      "Бот не будет выдавать случайные матчи за прогноз. Попробуем снова при следующем запуске.\n\n" +
-      "Модель: последние " + FORM_SIZE + " игр, домашние/гостевые показатели и распределение Пуассона.");
+    const reason = ODDS_API_KEY && statisticalCandidates.length
+      ? "Статистические кандидаты есть (" + statisticalCandidates.length +
+        "), но ни у одного не подтверждён расчётный перевес не менее " +
+        (MIN_EXPECTED_VALUE * 100).toFixed(0) +
+        "% по доступной котировке. Это не сигнал к ставке."
+      : "Сегодня сильных кандидатов по заданным критериям нет.";
+    await sendTelegram(header + reason + "\n\n" +
+      "Бот не будет выдавать матч без подтверждённой ценовой выгоды за готовый прогноз. Попробуем снова при следующем запуске.\n\n" +
+      "Фильтры: вероятность ничьей от " + (MIN_DRAW_PROBABILITY * 100).toFixed(1) +
+      "%; покрытие данных от " + MIN_DATA_RELIABILITY +
+      "/100; расчётный перевес от " + (MIN_EXPECTED_VALUE * 100).toFixed(0) + "%.");
     return;
   }
 
