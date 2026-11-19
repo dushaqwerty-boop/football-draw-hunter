@@ -26,19 +26,25 @@ const WELCOME = [
 
 
 const KEYBOARD = {
-  keyboard: [
-    [{ text: "🔎 Запустить анализ" }],
-    [{ text: "📊 Статистика" }, { text: "📚 История прогнозов" }]
-  ],
-  resize_keyboard: true,
-  is_persistent: true,
-  input_field_placeholder: "Выбери действие X-FACTOR"
+  inline_keyboard: [
+    [{ text: "🔎 Запустить анализ", callback_data: "scan" }],
+    [
+      { text: "📊 Статистика", callback_data: "stats" },
+      { text: "📚 История прогнозов", callback_data: "history" }
+    ]
+  ]
 };
 
 const BUTTON_COMMANDS = new Map([
   ["🔎 Запустить анализ", "/scan"],
   ["📊 Статистика", "/stats"],
   ["📚 История прогнозов", "/history"]
+]);
+
+const CALLBACK_COMMANDS = new Map([
+  ["scan", "/scan"],
+  ["stats", "/stats"],
+  ["history", "/history"]
 ]);
 
 async function readForecastHistory() {
@@ -178,19 +184,26 @@ export default async function handler(req, res) {
     return;
   }
 
-  const message = req.body && req.body.message;
+  const update = req.body || {};
+  const callbackQuery = update.callback_query;
+  const message = update.message || (callbackQuery && callbackQuery.message);
   const chatId = message && message.chat && message.chat.id;
-  const messageText = typeof (message && message.text) === "string"
-    ? message.text.trim()
+  const messageText = typeof (update.message && update.message.text) === "string"
+    ? update.message.text.trim()
+    : "";
+  const callbackData = callbackQuery && typeof callbackQuery.data === "string"
+    ? callbackQuery.data
     : "";
 
-  if (!chatId || !messageText) {
+  if (!chatId || (!messageText && !callbackData)) {
     res.status(200).json({ ok: true });
     return;
   }
 
-  const normalizedText = BUTTON_COMMANDS.get(messageText) || messageText;
-  const command = normalizedText.split(/\s+/)[0].split("@")[0].toLowerCase();
+  const normalizedText = callbackData
+    ? (CALLBACK_COMMANDS.get(callbackData) || "")
+    : (BUTTON_COMMANDS.get(messageText) || messageText);
+  const command = normalizedText ? normalizedText.split(/\s+/)[0].split("@")[0].toLowerCase() : "";
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) {
     console.error("TELEGRAM_BOT_TOKEN is not configured");
@@ -226,8 +239,9 @@ export default async function handler(req, res) {
         replyText = command === "/stats" ? formatStats(predictions) : formatHistory(predictions);
       } catch (error) {
         console.error("Forecast history read failed:", error.message);
-        replyText = "⚠️ Не удалось загрузить историю прогнозов. Попробуй немного позже."; 
+        replyText = "⚠️ Не удалось загрузить историю прогнозов. Попробуй немного позже.";
       }
+    } else if (command === "/myid") {
       replyText = "Твой Telegram chat ID: " + chatId + "\\nДобавь его в Vercel как XFACTOR_ADMIN_CHAT_ID, чтобы только ты мог запускать ручной анализ.";
     } else if (command === "/scan") {
       const adminChatId = (process.env.XFACTOR_ADMIN_CHAT_ID || "").trim();
@@ -286,6 +300,18 @@ export default async function handler(req, res) {
       }
     }
     if (!delivered) console.error("Telegram reply was not delivered after retries:", command);
+    if (callbackQuery && callbackQuery.id) {
+      try {
+        await fetch("https://api.telegram.org/bot" + token + "/answerCallbackQuery", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ callback_query_id: callbackQuery.id }),
+          signal: AbortSignal.timeout(10000)
+        });
+      } catch (error) {
+        console.error("Telegram callback acknowledgement failed:", error.message);
+      }
+    }
   } catch (error) {
     console.error("Webhook handler error:", error.message);
   }
