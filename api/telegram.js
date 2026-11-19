@@ -71,18 +71,23 @@ export default async function handler(req, res) {
     return;
   }
 
-  res.status(200).json({ ok: true });
-
   try {
     const message = req.body && req.body.message;
     const chatId = message && message.chat && message.chat.id;
     const messageText = typeof (message && message.text) === "string"
       ? message.text.trim()
       : "";
-    if (!chatId || !messageText) return;
 
-    const command = messageText.split(/\s+/)[0].split("@")[0].toLowerCase();
-    if (command !== "/start" && command !== "/help") return;
+    if (!chatId || !messageText) {
+      res.status(200).json({ ok: true });
+      return;
+    }
+
+    const command = messageText.split(/\\s+/)[0].split("@")[0].toLowerCase();
+    if (command !== "/start" && command !== "/help") {
+      res.status(200).json({ ok: true });
+      return;
+    }
 
     const token = process.env.TELEGRAM_BOT_TOKEN;
     if (!token) throw new Error("TELEGRAM_BOT_TOKEN is not configured");
@@ -96,6 +101,7 @@ export default async function handler(req, res) {
     let delivered = false;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
+        console.info("Telegram sendMessage attempt:", attempt);
         const response = await fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -128,4 +134,7 @@ export default async function handler(req, res) {
   } catch (error) {
     console.error("Webhook handler error:", error.message, error.cause ? String(error.cause) : "");
   }
-};
+
+  // Keep the function alive until Telegram sendMessage has completed.
+  res.status(200).json({ ok: true });
+}
