@@ -530,6 +530,7 @@ async function main() {
     event.completed && Number.isFinite(event.homeScore) && Number.isFinite(event.awayScore)
   );
   const backtestStats = runHistoricalBacktest(completed, testFrom);
+  console.log("Исторический тест: " + JSON.stringify(backtestStats));
   const upcoming = allEvents.filter(event =>
     !event.completed && event.date > now && event.date <= to
   );
