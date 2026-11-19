@@ -437,6 +437,67 @@ async function updateForecastHistory(completed, picks) {
   };
 }
 
+const SHADOW_HISTORY_PATH = "data/shadow-history.json";
+const MAX_SHADOW_CANDIDATES = 3;
+async function updateShadowHistory(completed, candidates) {
+  await mkdir("data", { recursive: true });
+  let history = { observations: [] };
+  try {
+    history = JSON.parse(await readFile(SHADOW_HISTORY_PATH, "utf8"));
+    if (!Array.isArray(history.observations)) history.observations = [];
+  } catch (error) { if (error.code !== "ENOENT") throw error; }
+  const completedByKey = new Map(completed.map(match => [match.leagueId + ":" + match.id, match]));
+  for (const item of history.observations) {
+    if (item.status !== "pending") continue;
+    const result = completedByKey.get(item.leagueId + ":" + item.eventId);
+    if (!result) continue;
+    item.status = "settled";
+    item.homeScore = result.homeScore;
+    item.awayScore = result.awayScore;
+    item.actualDraw = result.homeScore === result.awayScore;
+    item.settledAt = new Date().toISOString();
+    item.brier = (item.probability - (item.actualDraw ? 1 : 0)) ** 2;
+  }
+  const known = new Set(history.observations.map(item => item.leagueId + ":" + item.eventId));
+  for (const pick of candidates) {
+    const key = pick.leagueId + ":" + pick.id;
+    if (known.has(key)) continue;
+    history.observations.push({
+      eventId: pick.id, leagueId: pick.leagueId, league: pick.leagueName,
+      home: pick.homeName, away: pick.awayName, kickoff: pick.date.toISOString(),
+      probability: pick.probability, reliability: pick.reliability.score,
+      status: "pending", recordedAt: new Date().toISOString()
+    });
+    known.add(key);
+  }
+  history.updatedAt = new Date().toISOString();
+  await writeFile(SHADOW_HISTORY_PATH, JSON.stringify(history, null, 2) + "\\n", "utf8");
+  const settled = history.observations.filter(item => item.status === "settled");
+  const wins = settled.filter(item => item.actualDraw).length;
+  return { total: history.observations.length,
+    pending: history.observations.filter(item => item.status === "pending").length,
+    settled: settled.length, wins,
+    hitRate: settled.length ? wins / settled.length * 100 : null,
+    brier: settled.length ? average(settled.map(item => item.brier), null) : null };
+}
+function formatShadowReport(candidates, stats) {
+  const lines = [
+    "🧪 Теневое наблюдение (НЕ прогноз и НЕ рекомендация к ставке)",
+    "Новые кандидаты ниже рабочего порога 45%: " + candidates.length,
+    ...candidates.map((pick, index) => (index + 1) + ". " + pick.homeName + " — " +
+      pick.awayName + " | " + formatDate(pick.date) + " | ничья " +
+      (pick.probability * 100).toFixed(1).replace(".", ",") + "% | покрытие " +
+      pick.reliability.score + "/100"),
+    "В базе наблюдений: " + stats.total + " | ожидают результата: " +
+      stats.pending + " | завершено: " + stats.settled
+  ];
+  if (stats.hitRate !== null) lines.push("Доля ничьих: " + stats.wins + "/" +
+    stats.settled + " (" + stats.hitRate.toFixed(1).replace(".", ",") +
+    "%) | Brier: " + stats.brier.toFixed(4));
+  else lines.push("Метрики появятся после завершения первых наблюдаемых матчей.");
+  return lines.join("\\n");
+}
+
 function calibrationBins(items, probabilityKey) {
   const ranges = [
     { min: 0, max: 0.30, label: "до 30%" },
@@ -696,6 +757,11 @@ async function main() {
     .filter(pick => pick.probability >= MIN_DRAW_PROBABILITY)
     .filter(pick => pick.reliability.score >= MIN_DATA_RELIABILITY)
     .sort((a, b) => b.probability - a.probability);
+  const shadowCandidates = analysable
+    .filter(pick => pick.probability < MIN_DRAW_PROBABILITY)
+    .filter(pick => pick.reliability.score >= MIN_DATA_RELIABILITY)
+    .sort((a, b) => b.probability - a.probability)
+    .slice(0, MAX_SHADOW_CANDIDATES);
   const diagnostics = {
     upcoming: upcoming.length,
     analysable: analysable.length,
@@ -742,6 +808,7 @@ async function main() {
   }
 
   const historyStats = await updateForecastHistory(completed, picks);
+  const shadowStats = await updateShadowHistory(completed, shadowCandidates);
   console.log("Итоговых прогнозов: " + picks.length);
   for (const pick of picks) {
     console.log(pick.homeName + " — " + pick.awayName + ": " +
@@ -763,7 +830,7 @@ async function main() {
         "% по доступной котировке. Это не сигнал к ставке."
       : "Сегодня сильных кандидатов по заданным критериям нет.";
     await sendTelegram(header + reason + "\n\n" + formatDiagnostics(diagnostics) +
-      "\n\n" + formatHistoryStats(historyStats) + "\n\n" +
+      "\n\n" + formatHistoryStats(historyStats) + "\n\n" + formatShadowReport(shadowCandidates, shadowStats) + "\n\n" +
       formatBacktest(backtestStats) + "\n\n" +
       "Бот не будет выдавать матч без подтверждённой ценовой выгоды за готовый прогноз. Попробуем снова при следующем запуске.\n\n" +
       "Фильтры: вероятность ничьей от " + (MIN_DRAW_PROBABILITY * 100).toFixed(1) +
@@ -779,7 +846,7 @@ async function main() {
     "⚠️ Модель не откалибрована и не гарантирует результат. Проверяй составы, травмы и мотивацию.";
   await sendTelegram(header + "Найдено кандидатов: " + picks.length + "\n\n" + body +
     "\n\n" + formatDiagnostics(diagnostics) + "\n\n" +
-    formatHistoryStats(historyStats) + "\n\n" + formatBacktest(backtestStats) + footer);
+    formatHistoryStats(historyStats) + "\n\n" + formatShadowReport(shadowCandidates, shadowStats) + "\n\n" + formatBacktest(backtestStats) + footer);
 }
 
 main().catch(async error => {
