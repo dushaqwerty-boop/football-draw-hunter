@@ -1,0 +1,12 @@
+{
+  "name": "football-draw-hunter",
+  "version": "1.0.0",
+  "description": "Telegram bot that finds football draw candidates",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
