@@ -202,7 +202,7 @@ function analyseMatch(match, results) {
     away,
     homeExpected,
     awayExpected,
-    probability: Math.max(0, Math.min(0.65, adjusted)),
+    probability: Math.max(0, Math.min(1, adjusted)),
     reliability: dataReliability(home, away)
   };
 }
@@ -354,6 +354,49 @@ async function updateForecastHistory(completed, picks) {
   };
 }
 
+function runHistoricalBacktest(completed) {
+  const sorted = [...completed].sort((a, b) => a.date - b.date);
+  const candidates = [];
+  for (const match of sorted) {
+    const priorResults = sorted.filter(result =>
+      result.leagueId === match.leagueId && result.date < match.date
+    );
+    const prediction = analyseMatch(match, priorResults);
+    if (!prediction || prediction.probability < MIN_DRAW_PROBABILITY ||
+        prediction.reliability.score < MIN_DATA_RELIABILITY) continue;
+    const actual = match.homeScore === match.awayScore ? 1 : 0;
+    candidates.push({
+      probability: prediction.probability,
+      actual,
+      brier: (prediction.probability - actual) ** 2
+    });
+  }
+  const wins = candidates.filter(item => item.actual === 1).length;
+  const brier = candidates.length
+    ? average(candidates.map(item => item.brier), 0)
+    : null;
+  return {
+    count: candidates.length,
+    wins,
+    hitRate: candidates.length ? wins / candidates.length * 100 : null,
+    brier
+  };
+}
+
+function formatBacktest(stats) {
+  return [
+    "🧪 Проверка модели на прошлых матчах (скользящий тест, 60 дней)",
+    "Матчей с порогом " + (MIN_DRAW_PROBABILITY * 100).toFixed(0) + "%+: " + stats.count,
+    stats.hitRate === null
+      ? "Пока недостаточно исторических случаев для оценки."
+      : "Фактические ничьи: " + stats.wins + " из " + stats.count +
+        " (" + stats.hitRate.toFixed(1).replace(".", ",") + "%)",
+    stats.brier === null
+      ? "Brier score: нет данных"
+      : "Brier score: " + stats.brier.toFixed(3) + " (ниже — лучше)"
+  ].join("\\n");
+}
+
 function formatHistoryStats(stats) {
   return [
     "📚 История прогнозов",
@@ -425,7 +468,7 @@ async function main() {
   const completed = allEvents.filter(event =>
     event.completed && event.homeScore !== null && event.awayScore !== null
   );
-  const historyBeforePicks = await updateForecastHistory(completed, []);
+  const backtestStats = runHistoricalBacktest(completed);
   const upcoming = allEvents.filter(event =>
     !event.completed && event.date > now && event.date <= to
   );
@@ -508,7 +551,7 @@ async function main() {
     "Справедливый коэффициент = 1 / вероятность модели; ориентир от 5% запаса — только фильтр, не live-коэффициент букмекера. " +
     "Сравни его с актуальным коэффициентом и учитывай маржу букмекера.\n" +
     "⚠️ Модель не откалибрована и не гарантирует результат. Проверяй составы, травмы и мотивацию.";
-  await sendTelegram(header + "Найдено кандидатов: " + picks.length + "\n\n" + body + "\n\n" + formatHistoryStats(historyStats) + footer);
+  await sendTelegram(header + "Найдено кандидатов: " + picks.length + "\n\n" + body + "\n\n" + formatHistoryStats(historyStats) + "\\n\\n" + formatBacktest(backtestStats) + footer);
 }
 
 main().catch(async error => {
