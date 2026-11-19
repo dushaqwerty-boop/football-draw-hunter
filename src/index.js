@@ -125,7 +125,7 @@ function teamForm(teamId, side, results) {
   const matches = results
     .filter(match => match.completed &&
       (match.homeId === teamId || match.awayId === teamId) &&
-      match.homeScore !== null && match.awayScore !== null)
+      Number.isFinite(match.homeScore) && Number.isFinite(match.awayScore))
     .sort((a, b) => b.date - a.date)
     .slice(0, FORM_SIZE);
 
@@ -468,7 +468,7 @@ async function main() {
   const allEvents = [...unique.values()];
 
   const completed = allEvents.filter(event =>
-    event.completed && event.homeScore !== null && event.awayScore !== null
+    event.completed && Number.isFinite(event.homeScore) && Number.isFinite(event.awayScore)
   );
   const backtestStats = runHistoricalBacktest(completed, testFrom);
   const upcoming = allEvents.filter(event =>
