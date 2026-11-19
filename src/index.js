@@ -152,7 +152,7 @@ function average(values, fallback) {
   return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : fallback;
 }
 
-function teamForm(teamId, side, results) {
+function teamForm(teamId, side, results, adjustForOpponents = false) {
   const matches = results
     .filter(match => match.completed &&
       (match.homeId === teamId || match.awayId === teamId) &&
@@ -162,11 +162,31 @@ function teamForm(teamId, side, results) {
 
   const all = matches.map(match => {
     const isHome = match.homeId === teamId;
-    return {
-      scored: isHome ? match.homeScore : match.awayScore,
-      conceded: isHome ? match.awayScore : match.homeScore,
-      venue: isHome ? "home" : "away"
-    };
+    let scored = isHome ? match.homeScore : match.awayScore;
+    let conceded = isHome ? match.awayScore : match.homeScore;
+    if (adjustForOpponents) {
+      const opponentId = isHome ? match.awayId : match.homeId;
+      const opponentHistory = results.filter(prior =>
+        prior.completed && prior.date < match.date &&
+        (prior.homeId === opponentId || prior.awayId === opponentId) &&
+        Number.isFinite(prior.homeScore) && Number.isFinite(prior.awayScore)
+      );
+      if (opponentHistory.length >= 3) {
+        const opponentScored = average(opponentHistory.map(prior =>
+          prior.homeId === opponentId ? prior.homeScore : prior.awayScore), 1.25);
+        const opponentConceded = average(opponentHistory.map(prior =>
+          prior.homeId === opponentId ? prior.awayScore : prior.homeScore), 1.25);
+        const leagueGoals = average(results.filter(prior =>
+          prior.completed && prior.date < match.date &&
+          Number.isFinite(prior.homeScore) && Number.isFinite(prior.awayScore)
+        ).flatMap(prior => [prior.homeScore, prior.awayScore]), 1.25);
+        const attackFactor = Math.max(0.75, Math.min(1.25, leagueGoals / Math.max(0.4, opponentConceded)));
+        const defenceFactor = Math.max(0.75, Math.min(1.25, leagueGoals / Math.max(0.4, opponentScored)));
+        scored *= attackFactor;
+        conceded *= defenceFactor;
+      }
+    }
+    return { scored, conceded, venue: isHome ? "home" : "away" };
   });
 
   const venueMatches = all.filter(match => match.venue === side);
@@ -227,9 +247,9 @@ function venueDrawRate(teamId, side, results, leagueRate) {
   };
 }
 
-function analyseMatch(match, results) {
-  const home = teamForm(match.homeId, "home", results);
-  const away = teamForm(match.awayId, "away", results);
+function analyseMatch(match, results, adjustForOpponents = false) {
+  const home = teamForm(match.homeId, "home", results, adjustForOpponents);
+  const away = teamForm(match.awayId, "away", results, adjustForOpponents);
 
   if (home.matches < 4 || away.matches < 4) return null;
 
@@ -425,10 +445,14 @@ function runHistoricalBacktest(completed, testFrom) {
     const priorResults = sorted.filter(result =>
       result.leagueId === match.leagueId && result.date < match.date
     );
-    const prediction = analyseMatch(match, priorResults);
-    if (!prediction || prediction.reliability.score < MIN_DATA_RELIABILITY) continue;
+    const baseline = analyseMatch(match, priorResults, false);
+    const adjusted = analyseMatch(match, priorResults, true);
+    if (!baseline || !adjusted ||
+        baseline.reliability.score < MIN_DATA_RELIABILITY ||
+        adjusted.reliability.score < MIN_DATA_RELIABILITY) continue;
     evaluated.push({
-      probability: prediction.probability,
+      probability: baseline.probability,
+      adjustedProbability: adjusted.probability,
       actual: match.homeScore === match.awayScore ? 1 : 0
     });
   }
@@ -448,9 +472,27 @@ function runHistoricalBacktest(completed, testFrom) {
     };
   });
 
-  return { evaluated: evaluated.length, thresholds };
+  const baselineBrier = average(evaluated.map(item =>
+    (item.probability - item.actual) ** 2), null);
+  const adjustedBrier = average(evaluated.map(item =>
+    (item.adjustedProbability - item.actual) ** 2), null);
+  const adjustedAt45 = evaluated.filter(item => item.adjustedProbability >= 0.45);
+  const adjustedWinsAt45 = adjustedAt45.filter(item => item.actual === 1).length;
+  return {
+    evaluated: evaluated.length,
+    thresholds,
+    opponentAdjustment: {
+      baselineBrier,
+      adjustedBrier,
+      deltaBrier: baselineBrier === null || adjustedBrier === null
+        ? null : adjustedBrier - baselineBrier,
+      adjustedAt45Count: adjustedAt45.length,
+      adjustedAt45Wins: adjustedWinsAt45,
+      adjustedAt45HitRate: adjustedAt45.length
+        ? adjustedWinsAt45 / adjustedAt45.length * 100 : null
+    }
+  };
 }
-
 function formatBacktest(stats) {
   return [
     "🧪 Историческая проверка модели (последние 180 дней; только матчи с покрытием от " +
@@ -463,6 +505,19 @@ function formatBacktest(stats) {
         item.hitRate.toFixed(1).replace(".", ",") + "%)") + " | " +
       (item.brier === null ? "н/д" : item.brier.toFixed(3))
     ),
+    "Проверка силы соперников (та же выборка):",
+    "Brier без поправки: " + (stats.opponentAdjustment.baselineBrier === null
+      ? "н/д" : stats.opponentAdjustment.baselineBrier.toFixed(4)),
+    "Brier с поправкой: " + (stats.opponentAdjustment.adjustedBrier === null
+      ? "н/д" : stats.opponentAdjustment.adjustedBrier.toFixed(4)),
+    "Изменение Brier (ниже — лучше): " +
+      (stats.opponentAdjustment.deltaBrier === null
+        ? "н/д" : (stats.opponentAdjustment.deltaBrier > 0 ? "+" : "") +
+          stats.opponentAdjustment.deltaBrier.toFixed(4)),
+    "С поправкой при пороге 45%: " + stats.opponentAdjustment.adjustedAt45Count +
+      " матчей; ничьих: " + (stats.opponentAdjustment.adjustedAt45HitRate === null
+        ? "н/д" : stats.opponentAdjustment.adjustedAt45Wins + " (" +
+          stats.opponentAdjustment.adjustedAt45HitRate.toFixed(1).replace(".", ",") + "%)"),
     "Это ретротест модели, не гарантия будущей доходности; исторические коэффициенты здесь не учитываются."
   ].join("\n");
 }
