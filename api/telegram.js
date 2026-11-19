@@ -18,6 +18,7 @@ const WELCOME = [
   "Команды:",
   "/start — приветствие",
   "/help — как работает X-FACTOR",
+  "/scan — запустить анализ сейчас",
   "",
   "Будь на шаг впереди! 🖤💛"
 ].join("\n");
@@ -43,9 +44,24 @@ const HELP = [
   "Команды:",
   "/start — приветствие",
   "/help — эта справка",
+  "/scan — запустить анализ сейчас",
   "",
   "X-FACTOR — только аналитика ничьих. 🖤💛"
 ].join("\n");
+
+async function sendTelegram(token, chatId, text) {
+  const response = await fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true }),
+    signal: AbortSignal.timeout(10000)
+  });
+  const result = await response.json();
+  if (!response.ok || !result.ok) {
+    throw new Error("Telegram sendMessage failed: HTTP " + response.status + " " +
+      (result.description || "Unknown error"));
+  }
+}
 
 export default async function handler(req, res) {
   if (req.method === "GET") {
@@ -96,75 +112,86 @@ export default async function handler(req, res) {
     return;
   }
 
+  const message = req.body && req.body.message;
+  const chatId = message && message.chat && message.chat.id;
+  const messageText = typeof (message && message.text) === "string"
+    ? message.text.trim()
+    : "";
+
+  if (!chatId || !messageText) {
+    res.status(200).json({ ok: true });
+    return;
+  }
+
+  const command = messageText.split(/\\s+/)[0].split("@")[0].toLowerCase();
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) {
+    console.error("TELEGRAM_BOT_TOKEN is not configured");
+    res.status(200).json({ ok: true });
+    return;
+  }
+
   try {
-    const message = req.body && req.body.message;
-    const chatId = message && message.chat && message.chat.id;
-    const messageText = typeof (message && message.text) === "string"
-      ? message.text.trim()
-      : "";
-
-    if (!chatId || !messageText) {
-      res.status(200).json({ ok: true });
-      return;
-    }
-
-    const command = messageText.split(/\s+/)[0].split("@")[0].toLowerCase();
     let replyText;
     if (command === "/start") {
       replyText = WELCOME;
     } else if (command === "/help") {
       replyText = HELP;
+    } else if (command === "/scan") {
+      const githubToken = process.env.GITHUB_ACTIONS_TOKEN;
+      if (!githubToken) {
+        replyText = [
+          "⚙️ Ручной запуск почти готов.",
+          "",
+          "Нужно добавить в Vercel Production переменную GITHUB_ACTIONS_TOKEN — GitHub fine-grained token с доступом только к репозиторию dushaqwerty-boop/football-draw-hunter и разрешением Actions: Read and write.",
+          "",
+          "После добавления переменной команда /scan будет запускать полный анализ 9 турниров."
+        ].join("\n");
+      } else {
+        const dispatchResponse = await fetch(
+          "https://api.github.com/repos/dushaqwerty-boop/football-draw-hunter/actions/workflows/daily.yml/dispatches",
+          {
+            method: "POST",
+            headers: {
+              "Accept": "application/vnd.github+json",
+              "Authorization": "Bearer " + githubToken,
+              "X-GitHub-Api-Version": "2022-11-28",
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ ref: "main" }),
+            signal: AbortSignal.timeout(10000)
+          }
+        );
+        if (dispatchResponse.status === 204) {
+          replyText = "🔎 X-FACTOR: ручной анализ запущен!\n\nПроверяю 9 турниров и ближайшие 10 дней. Результат придёт сюда отдельным сообщением, как только анализ завершится. 🖤💛";
+          console.info("Manual X-FACTOR scan dispatched by Telegram chat");
+        } else {
+          const details = await dispatchResponse.text();
+          console.error("GitHub workflow dispatch failed:", dispatchResponse.status, details.slice(0, 500));
+          replyText = "⚠️ Не удалось запустить анализ через GitHub (HTTP " +
+            dispatchResponse.status + "). Проверь GITHUB_ACTIONS_TOKEN и права Actions: Read and write.";
+        }
+      }
     } else {
       res.status(200).json({ ok: true });
       return;
     }
 
-    const token = process.env.TELEGRAM_BOT_TOKEN;
-    if (!token) throw new Error("TELEGRAM_BOT_TOKEN is not configured");
-
-    const payload = {
-      chat_id: chatId,
-      text: replyText,
-      disable_web_page_preview: true
-    };
-
     let delivered = false;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        console.info("Telegram sendMessage attempt:", attempt);
-        const response = await fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-          signal: AbortSignal.timeout(10000)
-        });
-        const result = await response.json();
-        if (response.ok && result.ok) {
-          console.info("Telegram reply sent successfully:", command);
-          delivered = true;
-          break;
-        }
-        console.error("Telegram sendMessage rejected:", {
-          attempt,
-          status: response.status,
-          description: result.description || "Unknown Telegram API error"
-        });
-        if (response.status < 500 && response.status !== 429) break;
+        await sendTelegram(token, chatId, replyText);
+        console.info("Telegram reply sent successfully:", command);
+        delivered = true;
+        break;
       } catch (error) {
-        console.error("Telegram sendMessage network error:", {
-          attempt,
-          message: error.message,
-          cause: error.cause ? String(error.cause) : null
-        });
+        console.error("Telegram reply attempt failed:", attempt, error.message);
       }
     }
-    if (!delivered) {
-      console.error("Telegram reply was not delivered after retries:", command);
-    }
+    if (!delivered) console.error("Telegram reply was not delivered after retries:", command);
   } catch (error) {
-    console.error("Webhook handler error:", error.message, error.cause ? String(error.cause) : "");
+    console.error("Webhook handler error:", error.message);
   }
 
-  // Keep the function alive until Telegram sendMessage has completed.
   res.status(200).json({ ok: true });
 }
