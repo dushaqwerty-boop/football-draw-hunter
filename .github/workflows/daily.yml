@@ -49,25 +49,27 @@ jobs:
           node --input-type=module <<'NODE'
           import { readFile, writeFile } from "node:fs/promises";
           import { execFileSync } from "node:child_process";
-          const path = "data/forecast-history.json";
-          const local = JSON.parse(await readFile(path, "utf8"));
-          let remote = { predictions: [] };
-          try {
-            remote = JSON.parse(execFileSync("git", ["show", "origin/main:" + path], { encoding: "utf8" }));
-          } catch {}
-          const merged = new Map();
-          for (const item of [...(remote.predictions || []), ...(local.predictions || [])]) {
-            const key = item.leagueId + ":" + item.eventId;
-            const previous = merged.get(key);
-            if (!previous || (previous.status !== "settled" && item.status === "settled")) merged.set(key, item);
+          for (const [path, collection] of [
+            ["data/forecast-history.json", "predictions"],
+            ["data/shadow-history.json", "observations"]
+          ]) {
+            let local = { [collection]: [] };
+            try { local = JSON.parse(await readFile(path, "utf8")); } catch {}
+            let remote = { [collection]: [] };
+            try {
+              remote = JSON.parse(execFileSync("git", ["show", "origin/main:" + path], { encoding: "utf8" }));
+            } catch {}
+            const merged = new Map();
+            for (const item of [...(remote[collection] || []), ...(local[collection] || [])]) {
+              const key = item.leagueId + ":" + item.eventId;
+              const previous = merged.get(key);
+              if (!previous || (previous.status !== "settled" && item.status === "settled")) merged.set(key, item);
+            }
+            const output = { [collection]: [...merged.values()], updatedAt: new Date().toISOString() };
+            await writeFile(path, JSON.stringify(output, null, 2) + "\\n");
           }
-          const output = {
-            predictions: [...merged.values()],
-            updatedAt: new Date().toISOString()
-          };
-          await writeFile(path, JSON.stringify(output, null, 2) + "\n");
           NODE
-          git add data/forecast-history.json
+          git add data/forecast-history.json data/shadow-history.json
           if ! git diff --cached --quiet; then
             git commit -m "Update forecast history"
             git push origin HEAD:main
