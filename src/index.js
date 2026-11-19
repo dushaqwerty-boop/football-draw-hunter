@@ -17,7 +17,7 @@ const LEAGUES = [
 
 const FORM_SIZE = 8;
 const MAX_PICKS = 3;
-const MIN_DRAW_PROBABILITY = 0.60;
+const MIN_DRAW_PROBABILITY = 0.45;
 const MIN_DATA_RELIABILITY = 55;
 const MIN_EXPECTED_VALUE = 0.03;
 const REQUEST_TIMEOUT_MS = 15000;
@@ -430,6 +430,11 @@ function formatPick(pick, index) {
     (index + 1) + ". " + pick.homeName + " — " + pick.awayName,
     "🏆 " + pick.leagueName + " | " + formatDate(pick.date) + " (Рига)",
     "📊 Расчётная вероятность ничьей: " + percent + "%",
+    (pick.probability < 0.50
+      ? "⚠️ Диапазон 45–49%: низкая вероятность, только кандидат для наблюдения"
+      : pick.probability < 0.60
+        ? "🟡 Диапазон 50–59%: умеренный кандидат, не гарантия"
+        : "🟢 Диапазон 60%+: повышенный модельный показатель, не гарантия"),
     "⚽ Ожидаемые голы модели: " + xg,
     "🧾 Покрытие данными: " + pick.reliability.score + "/100 (" + pick.reliability.label + ")",
     "📐 Справедливый коэффициент модели: " + fairOdds,
