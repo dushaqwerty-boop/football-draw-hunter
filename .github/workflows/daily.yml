@@ -50,10 +50,10 @@ jobs:
           import { readFile, writeFile } from "node:fs/promises";
           import { execFileSync } from "node:child_process";
           const path = "data/forecast-history.json";
-          const local = JSON.parse(await readFile(path, "utf8"));
+          const local = JSON.parse((await readFile(path, "utf8")).replace(/\\\\n$/, ""));
           let remote = { predictions: [] };
           try {
-            remote = JSON.parse(execFileSync("git", ["show", "origin/main:" + path], { encoding: "utf8" }));
+            remote = JSON.parse(execFileSync("git", ["show", "origin/main:" + path], { encoding: "utf8" }).replace(/\\\\n$/, ""));
           } catch {}
           const merged = new Map();
           for (const item of [...(remote.predictions || []), ...(local.predictions || [])]) {
@@ -65,7 +65,7 @@ jobs:
             predictions: [...merged.values()],
             updatedAt: new Date().toISOString()
           };
-          await writeFile(path, JSON.stringify(output, null, 2) + "\\n");
+          await writeFile(path, JSON.stringify(output, null, 2) + "\n");
           NODE
           git add data/forecast-history.json
           if ! git diff --cached --quiet; then
