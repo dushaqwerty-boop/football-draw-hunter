@@ -479,7 +479,8 @@ function runHistoricalBacktest(completed, testFrom) {
     evaluated.push({
       probability: baseline.probability,
       adjustedProbability: adjusted.probability,
-      actual: match.homeScore === match.awayScore ? 1 : 0
+      actual: match.homeScore === match.awayScore ? 1 : 0,
+      date: match.date
     });
   }
 
@@ -504,6 +505,12 @@ function runHistoricalBacktest(completed, testFrom) {
     (item.adjustedProbability - item.actual) ** 2), null);
   const adjustedAt45 = evaluated.filter(item => item.adjustedProbability >= 0.45);
   const adjustedWinsAt45 = adjustedAt45.filter(item => item.actual === 1).length;
+  const splitDate = new Date(testFrom.getTime() + 180 * 24 * 60 * 60 * 1000);
+  const earlyPeriod = evaluated.filter(item => item.date < splitDate);
+  const recentPeriod = evaluated.filter(item => item.date >= splitDate);
+  const brierFor = (sample) => sample.length
+    ? average(sample.map(item => (item.probability - item.actual) ** 2), null)
+    : null;
 
   return {
     evaluated: evaluated.length,
@@ -511,6 +518,13 @@ function runHistoricalBacktest(completed, testFrom) {
     calibration: {
       baseline: calibrationBins(evaluated, "probability"),
       opponentAdjusted: calibrationBins(evaluated, "adjustedProbability")
+    },
+    temporal: {
+      earlyCount: earlyPeriod.length,
+      recentCount: recentPeriod.length,
+      earlyBrier: brierFor(earlyPeriod),
+      recentBrier: brierFor(recentPeriod),
+      recentCalibration: calibrationBins(recentPeriod, "probability")
     },
     opponentAdjustment: {
       baselineBrier,
@@ -544,6 +558,12 @@ function formatBacktest(stats) {
     "Матчей, которые можно было оценить: " + stats.evaluated,
     ...formatCalibration("Калибровка исходной модели:", stats.calibration.baseline),
     ...formatCalibration("Калибровка с поправкой на силу соперников:", stats.calibration.opponentAdjusted),
+    "Проверка стабильности по времени:",
+    "Ранняя часть: " + stats.temporal.earlyCount + " матчей; Brier " +
+      (stats.temporal.earlyBrier === null ? "н/д" : stats.temporal.earlyBrier.toFixed(4)),
+    "Последние 90 дней: " + stats.temporal.recentCount + " матчей; Brier " +
+      (stats.temporal.recentBrier === null ? "н/д" : stats.temporal.recentBrier.toFixed(4)),
+    ...formatCalibration("Калибровка на последних 90 днях:", stats.temporal.recentCalibration),
     "Brier score по всей выборке — исходная: " +
       (stats.opponentAdjustment.baselineBrier === null
         ? "н/д" : stats.opponentAdjustment.baselineBrier.toFixed(4)),
