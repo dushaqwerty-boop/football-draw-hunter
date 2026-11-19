@@ -1,6 +1,6 @@
-# Football Draw Hunter
+# X-FACTOR — Прогнозы на ничью
 
-Telegram bot that scans football fixtures and ranks draw candidates.
+Telegram-бот с аналитикой футбольных матчей и кандидатами на ничью.
 
 ## What it does
 
