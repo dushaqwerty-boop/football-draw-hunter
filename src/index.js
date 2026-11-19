@@ -394,7 +394,7 @@ function formatBacktest(stats) {
     stats.brier === null
       ? "Brier score: нет данных"
       : "Brier score: " + stats.brier.toFixed(3) + " (ниже — лучше)"
-  ].join("\\n");
+  ].join("\n");
 }
 
 function formatHistoryStats(stats) {
@@ -551,7 +551,7 @@ async function main() {
     "Справедливый коэффициент = 1 / вероятность модели; ориентир от 5% запаса — только фильтр, не live-коэффициент букмекера. " +
     "Сравни его с актуальным коэффициентом и учитывай маржу букмекера.\n" +
     "⚠️ Модель не откалибрована и не гарантирует результат. Проверяй составы, травмы и мотивацию.";
-  await sendTelegram(header + "Найдено кандидатов: " + picks.length + "\n\n" + body + "\n\n" + formatHistoryStats(historyStats) + "\\n\\n" + formatBacktest(backtestStats) + footer);
+  await sendTelegram(header + "Найдено кандидатов: " + picks.length + "\n\n" + body + "\n\n" + formatHistoryStats(historyStats) + "\n\n" + formatBacktest(backtestStats) + footer);
 }
 
 main().catch(async error => {
