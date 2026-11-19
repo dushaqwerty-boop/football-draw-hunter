@@ -421,7 +421,7 @@ function runHistoricalBacktest(completed, testFrom) {
 
 function formatBacktest(stats) {
   return [
-    "🧪 Историческая проверка модели (последние 60 дней; только матчи с покрытием от " +
+    "🧪 Историческая проверка модели (последние 180 дней; только матчи с покрытием от " +
       MIN_DATA_RELIABILITY + "/100)",
     "Матчей, которые можно было оценить: " + stats.evaluated,
     "Порог | выборка | ничьи | Brier score",
@@ -514,8 +514,8 @@ function formatPick(pick, index) {
 async function main() {
   await configureTelegramProfile();
   const now = new Date();
-  const testFrom = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
   const from = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000);
+  const testFrom = from;
   const to = new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000);
 
   console.log("Загрузка матчей по " + LEAGUES.length + " турнирам...");
