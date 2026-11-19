@@ -19,6 +19,7 @@ const WELCOME = [
   "/start — приветствие",
   "/help — как работает X-FACTOR",
   "/scan — запустить анализ сейчас",
+  "/myid — показать мой ID для настройки доступа",
   "",
   "Будь на шаг впереди! 🖤💛"
 ].join("\n");
@@ -137,7 +138,13 @@ export default async function handler(req, res) {
       replyText = WELCOME;
     } else if (command === "/help") {
       replyText = HELP;
+    } else if (command === "/myid") {
+      replyText = "Твой Telegram chat ID: " + chatId + "\\nДобавь его в Vercel как XFACTOR_ADMIN_CHAT_ID, чтобы только ты мог запускать ручной анализ.";
     } else if (command === "/scan") {
+      const adminChatId = (process.env.XFACTOR_ADMIN_CHAT_ID || "").trim();
+      if (!adminChatId || String(chatId) !== adminChatId) {
+        replyText = "🔒 Ручной запуск анализа доступен только администратору. Для настройки отправь /myid и добавь полученный ID в Vercel (XFACTOR_ADMIN_CHAT_ID).";
+      } else {
       const githubToken = process.env.GITHUB_ACTIONS_TOKEN;
       if (!githubToken) {
         replyText = [
@@ -171,6 +178,7 @@ export default async function handler(req, res) {
           replyText = "⚠️ Не удалось запустить анализ через GitHub (HTTP " +
             dispatchResponse.status + "). Проверь GITHUB_ACTIONS_TOKEN и права Actions: Read and write.";
         }
+      }
       }
     } else {
       res.status(200).json({ ok: true });
