@@ -354,10 +354,11 @@ async function updateForecastHistory(completed, picks) {
   };
 }
 
-function runHistoricalBacktest(completed) {
+function runHistoricalBacktest(completed, testFrom) {
   const sorted = [...completed].sort((a, b) => a.date - b.date);
   const candidates = [];
-  for (const match of sorted) {
+  const testMatches = sorted.filter(match => match.date >= testFrom);
+  for (const match of testMatches) {
     const priorResults = sorted.filter(result =>
       result.leagueId === match.leagueId && result.date < match.date
     );
@@ -385,7 +386,7 @@ function runHistoricalBacktest(completed) {
 
 function formatBacktest(stats) {
   return [
-    "🧪 Проверка модели на прошлых матчах (скользящий тест, 60 дней)",
+    "🧪 Проверка модели на прошлых матчах (60 дней теста + история для обучения)",
     "Матчей с порогом " + (MIN_DRAW_PROBABILITY * 100).toFixed(0) + "%+: " + stats.count,
     stats.hitRate === null
       ? "Пока недостаточно исторических случаев для оценки."
@@ -454,7 +455,7 @@ function formatPick(pick, index) {
 
 async function main() {
   const now = new Date();
-  const from = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+  const testFrom = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);\n  const from = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000);
   const to = new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000);
 
   console.log("Загрузка матчей по " + LEAGUES.length + " турнирам...");
@@ -468,7 +469,7 @@ async function main() {
   const completed = allEvents.filter(event =>
     event.completed && event.homeScore !== null && event.awayScore !== null
   );
-  const backtestStats = runHistoricalBacktest(completed);
+  const backtestStats = runHistoricalBacktest(completed, testFrom);
   const upcoming = allEvents.filter(event =>
     !event.completed && event.date > now && event.date <= to
   );
