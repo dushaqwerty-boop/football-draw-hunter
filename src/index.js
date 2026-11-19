@@ -49,6 +49,13 @@ async function configureTelegramProfile() {
     }],
     ["setShortDescription", {
       short_description: "Футбольная аналитика и прогнозы на ничью. Вероятности и коэффициенты — без гарантий результата."
+    }],
+    ["setMyCommands", {
+      commands: [
+        { command: "start", description: "Открыть X-FACTOR" },
+        { command: "help", description: "Как работает модель" },
+        { command: "scan", description: "Запустить анализ" }
+      ]
     }]
   ];
 
