@@ -471,7 +471,7 @@ async function updateShadowHistory(completed, candidates) {
     known.add(key);
   }
   history.updatedAt = new Date().toISOString();
-  await writeFile(SHADOW_HISTORY_PATH, JSON.stringify(history, null, 2) + "\\n", "utf8");
+  await writeFile(SHADOW_HISTORY_PATH, JSON.stringify(history, null, 2) + "\n", "utf8");
   const settled = history.observations.filter(item => item.status === "settled");
   const wins = settled.filter(item => item.actualDraw).length;
   return { total: history.observations.length,
@@ -495,7 +495,7 @@ function formatShadowReport(candidates, stats) {
     stats.settled + " (" + stats.hitRate.toFixed(1).replace(".", ",") +
     "%) | Brier: " + stats.brier.toFixed(4));
   else lines.push("Метрики появятся после завершения первых наблюдаемых матчей.");
-  return lines.join("\\n");
+  return lines.join("\n");
 }
 
 function calibrationBins(items, probabilityKey) {
@@ -808,7 +808,7 @@ async function main() {
   }
 
   const historyStats = await updateForecastHistory(completed, picks);
-  const shadowStats = await updateShadowHistory(completed, shadowCandidates);
+  console.log("Теневые кандидаты: " + shadowCandidates.length);\n  const shadowStats = await updateShadowHistory(completed, shadowCandidates);
   console.log("Итоговых прогнозов: " + picks.length);
   for (const pick of picks) {
     console.log(pick.homeName + " — " + pick.awayName + ": " +
