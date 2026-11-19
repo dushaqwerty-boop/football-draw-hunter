@@ -51,6 +51,9 @@ async function sendTelegram(message) {
   );
   const data = await response.json().catch(() => ({}));
   if (!response.ok || !data.ok) {
+    if (response.status === 404) {
+      throw new Error("Telegram вернул 404: токен бота недействителен. Проверьте TELEGRAM_BOT_TOKEN в GitHub Secrets; сам токен никому не отправляйте.");
+    }
     throw new Error("Telegram API error: " + response.status + " " + (data.description || ""));
   }
 }
@@ -239,7 +242,7 @@ async function main() {
     .sort((a, b) => b.probability - a.probability)
     .slice(0, MAX_PICKS);
 
-  const header = "⚽ FOOTBALL DRAW HUNTER\n" +
+  console.log("Кандидатов после статистической фильтрации: " + picks.length);\n  for (const pick of picks) {\n    console.log(pick.homeName + " — " + pick.awayName + ": " + (pick.probability * 100).toFixed(1) + "%");\n  }\n\n  const header = "⚽ FOOTBALL DRAW HUNTER\n" +
     "Анализ на ближайшие 10 дней\n" +
     "Турниров проверено: " + LEAGUES.length + "\n" +
     "Завершённых матчей в базе: " + completed.length + "\n\n";
