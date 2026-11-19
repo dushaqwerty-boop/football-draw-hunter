@@ -22,6 +22,31 @@ const WELCOME = [
   "Будь на шаг впереди! 🖤💛"
 ].join("\n");
 
+const HELP = [
+  "📊 КАК РАБОТАЕТ X-FACTOR",
+  "",
+  "Я ищу футбольные матчи, в которых статистическая модель видит повышенную вероятность ничьей.",
+  "",
+  "При анализе учитываются:",
+  "• результаты и форма команд в последних матчах;",
+  "• разница между домашними и гостевыми показателями;",
+  "• ожидаемая результативность команд и расчёт вероятности ничьей;",
+  "• букмекерские коэффициенты — чтобы оценить, есть ли потенциальная ценность у прогноза.",
+  "",
+  "Как читать прогноз:",
+  "• вероятность — оценка модели, а не гарантия;",
+  "• коэффициент — ориентир, который нужно перепроверить у букмекера;",
+  "• отсутствие прогноза означает, что сейчас нет кандидатов, прошедших фильтры.",
+  "",
+  "Важно: даже высокая расчётная вероятность не исключает проигрыш. Проверяй составы, травмы и актуальные коэффициенты самостоятельно.",
+  "",
+  "Команды:",
+  "/start — приветствие",
+  "/help — эта справка",
+  "",
+  "X-FACTOR — только аналитика ничьих. 🖤💛"
+].join("\n");
+
 export default async function handler(req, res) {
   if (req.method === "GET") {
     const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -83,8 +108,13 @@ export default async function handler(req, res) {
       return;
     }
 
-    const command = messageText.split(/\\s+/)[0].split("@")[0].toLowerCase();
-    if (command !== "/start" && command !== "/help") {
+    const command = messageText.split(/\s+/)[0].split("@")[0].toLowerCase();
+    let replyText;
+    if (command === "/start") {
+      replyText = WELCOME;
+    } else if (command === "/help") {
+      replyText = HELP;
+    } else {
       res.status(200).json({ ok: true });
       return;
     }
@@ -94,7 +124,7 @@ export default async function handler(req, res) {
 
     const payload = {
       chat_id: chatId,
-      text: WELCOME,
+      text: replyText,
       disable_web_page_preview: true
     };
 
@@ -110,7 +140,7 @@ export default async function handler(req, res) {
         });
         const result = await response.json();
         if (response.ok && result.ok) {
-          console.info("Telegram welcome message sent successfully");
+          console.info("Telegram reply sent successfully:", command);
           delivered = true;
           break;
         }
@@ -129,7 +159,7 @@ export default async function handler(req, res) {
       }
     }
     if (!delivered) {
-      console.error("Telegram welcome message was not delivered after retries");
+      console.error("Telegram reply was not delivered after retries:", command);
     }
   } catch (error) {
     console.error("Webhook handler error:", error.message, error.cause ? String(error.cause) : "");
