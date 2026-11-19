@@ -209,6 +209,24 @@ function dataReliability(home, away) {
   };
 }
 
+function venueDrawRate(teamId, side, results, leagueRate) {
+  const matches = results
+    .filter(match => match.completed &&
+      Number.isFinite(match.homeScore) && Number.isFinite(match.awayScore) &&
+      (side === "home"
+        ? match.homeId === teamId
+        : match.awayId === teamId))
+    .sort((a, b) => b.date - a.date)
+    .slice(0, 10);
+  const draws = matches.filter(match => match.homeScore === match.awayScore).length;
+  // Bayesian shrinkage prevents tiny venue samples from dominating the estimate.
+  const priorMatches = 6;
+  return {
+    matches: matches.length,
+    rate: (draws + leagueRate * priorMatches) / (matches.length + priorMatches)
+  };
+}
+
 function analyseMatch(match, results) {
   const home = teamForm(match.homeId, "home", results);
   const away = teamForm(match.awayId, "away", results);
@@ -218,14 +236,26 @@ function analyseMatch(match, results) {
   // Expected goals blend each team's venue-specific attack with its opponent's venue-specific defence.
   const homeExpected = Math.min(3.2, Math.max(0.2, (home.venueScored + away.venueConceded) / 2));
   const awayExpected = Math.min(3.2, Math.max(0.2, (away.venueScored + home.venueConceded) / 2));
-  const probability = drawProbability(homeExpected, awayExpected);
+  const poissonProbability = drawProbability(homeExpected, awayExpected);
   const goalGap = Math.abs(homeExpected - awayExpected);
   const totalExpected = homeExpected + awayExpected;
 
   // Small transparent penalties for one-sided or high-scoring match profiles.
-  const adjusted = probability
+  const adjustedPoisson = poissonProbability
     - Math.max(0, goalGap - 0.35) * 0.025
     - Math.max(0, totalExpected - 2.5) * 0.018;
+
+  const leagueRate = average(
+    results.map(result => result.homeScore === result.awayScore ? 1 : 0),
+    0.26
+  );
+  const homeDrawProfile = venueDrawRate(match.homeId, "home", results, leagueRate);
+  const awayDrawProfile = venueDrawRate(match.awayId, "away", results, leagueRate);
+  const venueDrawSignal = (homeDrawProfile.rate + awayDrawProfile.rate) / 2;
+
+  // Blend a modest venue-specific historical signal with the goal model.
+  // Rates are shrunk toward the league baseline to limit small-sample noise.
+  const probability = 0.85 * adjustedPoisson + 0.15 * venueDrawSignal;
 
   return {
     ...match,
@@ -233,7 +263,9 @@ function analyseMatch(match, results) {
     away,
     homeExpected,
     awayExpected,
-    probability: Math.max(0, Math.min(1, adjusted)),
+    homeDrawRate: homeDrawProfile.rate,
+    awayDrawRate: awayDrawProfile.rate,
+    probability: Math.max(0, Math.min(1, probability)),
     reliability: dataReliability(home, away)
   };
 }
