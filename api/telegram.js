@@ -19,7 +19,6 @@ const WELCOME = [
   "/start — приветствие",
   "/help — как работает X-FACTOR",
   "/scan — запустить анализ сейчас",
-  "/myid — показать мой ID для настройки доступа",
   "",
   "Будь на шаг впереди! 🖤💛"
 ].join("\n");
@@ -147,7 +146,38 @@ export default async function handler(req, res) {
         fetch("https://api.telegram.org/bot" + token + "/getMe"),
         fetch("https://api.telegram.org/bot" + token + "/getWebhookInfo")
       ]);
-      const [me, webhook] = await Promise.all([meResponse.json(), webhookResponse.json()]);
+      const [me, initialWebhook] = await Promise.all([meResponse.json(), webhookResponse.json()]);
+      let webhook = initialWebhook;
+
+      // Telegram inline buttons arrive as callback_query updates. Keep them enabled
+      // alongside normal messages so the visible keyboard can actually work.
+      if (webhook.ok && webhook.result.url &&
+          !(webhook.result.allowed_updates || []).includes("callback_query")) {
+        const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+        const setWebhookBody = {
+          url: webhook.result.url,
+          allowed_updates: ["message", "callback_query"]
+        };
+        if (webhookSecret) setWebhookBody.secret_token = webhookSecret;
+
+        const setWebhookResponse = await fetch("https://api.telegram.org/bot" + token + "/setWebhook", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(setWebhookBody),
+          signal: AbortSignal.timeout(10000)
+        });
+        const setWebhookResult = await setWebhookResponse.json();
+        if (setWebhookResponse.ok && setWebhookResult.ok) {
+          const refreshed = await fetch("https://api.telegram.org/bot" + token + "/getWebhookInfo", {
+            signal: AbortSignal.timeout(10000)
+          });
+          webhook = await refreshed.json();
+          console.info("Telegram webhook updated to receive message and callback_query updates");
+        } else {
+          console.error("Telegram setWebhook failed:", setWebhookResult.description || setWebhookResponse.status);
+        }
+      }
+
       res.status(200).json({
         ok: true,
         tokenConfigured: true,
