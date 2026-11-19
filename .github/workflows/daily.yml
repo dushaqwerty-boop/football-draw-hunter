@@ -50,10 +50,10 @@ jobs:
           import { readFile, writeFile } from "node:fs/promises";
           import { execFileSync } from "node:child_process";
           const path = "data/forecast-history.json";
-          const local = JSON.parse((await readFile(path, "utf8")).replace(/\\\\n$/, ""));
+          const local = JSON.parse(await readFile(path, "utf8"));
           let remote = { predictions: [] };
           try {
-            remote = JSON.parse(execFileSync("git", ["show", "origin/main:" + path], { encoding: "utf8" }).replace(/\\\\n$/, ""));
+            remote = JSON.parse(execFileSync("git", ["show", "origin/main:" + path], { encoding: "utf8" }));
           } catch {}
           const merged = new Map();
           for (const item of [...(remote.predictions || []), ...(local.predictions || [])]) {
