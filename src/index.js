@@ -387,46 +387,68 @@ async function updateForecastHistory(completed, picks) {
 
 function runHistoricalBacktest(completed, testFrom) {
   const sorted = [...completed].sort((a, b) => a.date - b.date);
-  const candidates = [];
+  const evaluated = [];
   const testMatches = sorted.filter(match => match.date >= testFrom);
   for (const match of testMatches) {
     const priorResults = sorted.filter(result =>
       result.leagueId === match.leagueId && result.date < match.date
     );
     const prediction = analyseMatch(match, priorResults);
-    if (!prediction || prediction.probability < MIN_DRAW_PROBABILITY ||
-        prediction.reliability.score < MIN_DATA_RELIABILITY) continue;
-    const actual = match.homeScore === match.awayScore ? 1 : 0;
-    candidates.push({
+    if (!prediction || prediction.reliability.score < MIN_DATA_RELIABILITY) continue;
+    evaluated.push({
       probability: prediction.probability,
-      actual,
-      brier: (prediction.probability - actual) ** 2
+      actual: match.homeScore === match.awayScore ? 1 : 0
     });
   }
-  const wins = candidates.filter(item => item.actual === 1).length;
-  const brier = candidates.length
-    ? average(candidates.map(item => item.brier), 0)
-    : null;
-  return {
-    count: candidates.length,
-    wins,
-    hitRate: candidates.length ? wins / candidates.length * 100 : null,
-    brier
-  };
+
+  const thresholds = [0.30, 0.35, 0.40, 0.45].map(threshold => {
+    const candidates = evaluated.filter(item => item.probability >= threshold);
+    const wins = candidates.filter(item => item.actual === 1).length;
+    const brier = candidates.length
+      ? average(candidates.map(item => (item.probability - item.actual) ** 2), 0)
+      : null;
+    return {
+      threshold,
+      count: candidates.length,
+      wins,
+      hitRate: candidates.length ? wins / candidates.length * 100 : null,
+      brier
+    };
+  });
+
+  return { evaluated: evaluated.length, thresholds };
 }
 
 function formatBacktest(stats) {
   return [
-    "🧪 Проверка модели на прошлых матчах (60 дней теста + история для обучения)",
-    "Матчей с порогом " + (MIN_DRAW_PROBABILITY * 100).toFixed(0) + "%+: " + stats.count,
-    stats.hitRate === null
-      ? "Пока недостаточно исторических случаев для оценки."
-      : "Фактические ничьи: " + stats.wins + " из " + stats.count +
-        " (" + stats.hitRate.toFixed(1).replace(".", ",") + "%)",
-    stats.brier === null
-      ? "Brier score: нет данных"
-      : "Brier score: " + stats.brier.toFixed(3) + " (ниже — лучше)"
+    "🧪 Историческая проверка модели (последние 60 дней; только матчи с покрытием от " +
+      MIN_DATA_RELIABILITY + "/100)",
+    "Матчей, которые можно было оценить: " + stats.evaluated,
+    "Порог | выборка | ничьи | Brier score",
+    ...stats.thresholds.map(item =>
+      (item.threshold * 100).toFixed(0) + "% | " + item.count + " | " +
+      (item.hitRate === null ? "н/д" : item.wins + " (" +
+        item.hitRate.toFixed(1).replace(".", ",") + "%)") + " | " +
+      (item.brier === null ? "н/д" : item.brier.toFixed(3))
+    ),
+    "Это ретротест модели, не гарантия будущей доходности; исторические коэффициенты здесь не учитываются."
   ].join("\n");
+}
+
+function formatDiagnostics(stats) {
+  return [
+    "🔬 Диагностика отбора матчей",
+    "Предстоящих матчей: " + stats.upcoming,
+    "Хватило данных для модели: " + stats.analysable,
+    "Не хватило истории команд: " + stats.insufficientData,
+    "Ниже порога вероятности " + (MIN_DRAW_PROBABILITY * 100).toFixed(0) +
+      "%: " + stats.belowProbability,
+    "Ниже покрытия " + MIN_DATA_RELIABILITY + "/100: " + stats.belowReliability,
+    "Максимальная вероятность среди оценённых: " +
+      (stats.bestProbability === null ? "н/д" :
+        (stats.bestProbability * 100).toFixed(1).replace(".", ",") + "%"),
+    "Прошли оба фильтра: " + stats.passed
+  ].join("\\n");
 }
 
 function formatHistoryStats(stats) {
@@ -515,13 +537,32 @@ async function main() {
   console.log("Получено событий: " + allEvents.length +
     "; завершено: " + completed.length + "; впереди: " + upcoming.length);
 
-  const statisticalCandidates = upcoming
-    .map(match => analyseMatch(match, completed.filter(result => result.leagueId === match.leagueId)))
-    .filter(Boolean)
+  const upcomingAnalyses = upcoming.map(match =>
+    analyseMatch(match, completed.filter(result => result.leagueId === match.leagueId))
+  );
+  const analysable = upcomingAnalyses.filter(Boolean);
+  const insufficientData = upcomingAnalyses.length - analysable.length;
+  const belowProbability = analysable.filter(pick =>
+    pick.probability < MIN_DRAW_PROBABILITY
+  ).length;
+  const belowReliability = analysable.filter(pick =>
+    pick.reliability.score < MIN_DATA_RELIABILITY
+  ).length;
+  const statisticalCandidates = analysable
     .filter(pick => pick.probability >= MIN_DRAW_PROBABILITY)
     .filter(pick => pick.reliability.score >= MIN_DATA_RELIABILITY)
     .sort((a, b) => b.probability - a.probability);
+  const diagnostics = {
+    upcoming: upcoming.length,
+    analysable: analysable.length,
+    insufficientData,
+    belowProbability,
+    belowReliability,
+    bestProbability: analysable.length ? Math.max(...analysable.map(pick => pick.probability)) : null,
+    passed: statisticalCandidates.length
+  };
 
+  console.log("Диагностика отбора: " + JSON.stringify(diagnostics));
   console.log("Кандидатов после статистической фильтрации: " + statisticalCandidates.length);
 
   let picks = [];
@@ -577,7 +618,9 @@ async function main() {
         (MIN_EXPECTED_VALUE * 100).toFixed(0) +
         "% по доступной котировке. Это не сигнал к ставке."
       : "Сегодня сильных кандидатов по заданным критериям нет.";
-    await sendTelegram(header + reason + "\n\n" + formatHistoryStats(historyStats) + "\n\n" +
+    await sendTelegram(header + reason + "\n\n" + formatDiagnostics(diagnostics) +
+      "\n\n" + formatHistoryStats(historyStats) + "\n\n" +
+      formatBacktest(backtestStats) + "\n\n" +
       "Бот не будет выдавать матч без подтверждённой ценовой выгоды за готовый прогноз. Попробуем снова при следующем запуске.\n\n" +
       "Фильтры: вероятность ничьей от " + (MIN_DRAW_PROBABILITY * 100).toFixed(1) +
       "%; покрытие данных от " + MIN_DATA_RELIABILITY +
@@ -590,7 +633,9 @@ async function main() {
     "Справедливый коэффициент = 1 / вероятность модели; ориентир от 5% запаса — только фильтр, не live-коэффициент букмекера. " +
     "Сравни его с актуальным коэффициентом и учитывай маржу букмекера.\n" +
     "⚠️ Модель не откалибрована и не гарантирует результат. Проверяй составы, травмы и мотивацию.";
-  await sendTelegram(header + "Найдено кандидатов: " + picks.length + "\n\n" + body + "\n\n" + formatHistoryStats(historyStats) + "\n\n" + formatBacktest(backtestStats) + footer);
+  await sendTelegram(header + "Найдено кандидатов: " + picks.length + "\n\n" + body +
+    "\n\n" + formatDiagnostics(diagnostics) + "\n\n" +
+    formatHistoryStats(historyStats) + "\n\n" + formatBacktest(backtestStats) + footer);
 }
 
 main().catch(async error => {
