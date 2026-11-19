@@ -1,4 +1,4 @@
-name: Football Draw Hunter # shadow-history validation
+name: Football Draw Hunter # shadow-history validation v2
 
 on:
   workflow_dispatch:
