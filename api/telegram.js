@@ -24,6 +24,71 @@ const WELCOME = [
   "Будь на шаг впереди! 🖤💛"
 ].join("\n");
 
+
+const KEYBOARD = {
+  keyboard: [
+    [{ text: "🔎 Запустить анализ" }],
+    [{ text: "📊 Статистика" }, { text: "📚 История прогнозов" }]
+  ],
+  resize_keyboard: true,
+  is_persistent: true,
+  input_field_placeholder: "Выбери действие X-FACTOR"
+};
+
+const BUTTON_COMMANDS = new Map([
+  ["🔎 Запустить анализ", "/scan"],
+  ["📊 Статистика", "/stats"],
+  ["📚 История прогнозов", "/history"]
+]);
+
+async function readForecastHistory() {
+  const url = "https://raw.githubusercontent.com/dushaqwerty-boop/football-draw-hunter/main/data/forecast-history.json";
+  const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
+  if (!response.ok) throw new Error("Не удалось загрузить историю прогнозов (HTTP " + response.status + ")");
+  const data = await response.json();
+  return Array.isArray(data.predictions) ? data.predictions : [];
+}
+
+function formatStats(predictions) {
+  const settled = predictions.filter(item => item.status === "settled");
+  const pending = predictions.filter(item => item.status === "pending");
+  const wins = settled.filter(item => item.actualDraw).length;
+  const priced = settled.filter(item => Number.isFinite(item.profitUnits));
+  const profit = priced.reduce((sum, item) => sum + item.profitUnits, 0);
+  const roi = priced.length ? (profit / priced.length * 100).toFixed(1).replace(".", ",") + "%" : "пока недостаточно данных";
+  return [
+    "📊 X-FACTOR | СТАТИСТИКА",
+    "",
+    "Всего прогнозов: " + predictions.length,
+    "Ожидают результата: " + pending.length,
+    "Завершено: " + settled.length,
+    "Угадано ничьих: " + wins,
+    "Точность: " + (settled.length ? (wins / settled.length * 100).toFixed(1).replace(".", ",") + "%" : "пока нет данных"),
+    "ROI по прогнозам с сохранённым коэффициентом: " + roi,
+    "",
+    "Статистика отражает только сохранённые прогнозы и не гарантирует будущую доходность."
+  ].join("\n");
+}
+
+function formatHistory(predictions) {
+  if (!predictions.length) return "📚 История прогнозов пока пуста. Когда бот сохранит первый прогноз, он появится здесь.";
+  const latest = [...predictions].sort((a, b) => new Date(b.kickoff) - new Date(a.kickoff)).slice(0, 10);
+  return [
+    "📚 X-FACTOR | ПОСЛЕДНИЕ ПРОГНОЗЫ",
+    "",
+    ...latest.map((item, index) => {
+      const status = item.status === "settled"
+        ? (item.actualDraw ? "✅ Ничья" : "❌ Не ничья")
+        : "⏳ Ожидает результата";
+      const date = item.kickoff ? new Date(item.kickoff).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Riga" }) : "дата не указана";
+      const probability = Number.isFinite(item.probability) ? (item.probability * 100).toFixed(1).replace(".", ",") + "%" : "н/д";
+      return (index + 1) + ". " + item.home + " — " + item.away + "\n" +
+        "   " + date + " | вероятность: " + probability + "\n" +
+        "   " + status;
+    })
+  ].join("\n");
+}
+
 const HELP = [
   "📊 КАК РАБОТАЕТ X-FACTOR",
   "",
@@ -50,11 +115,11 @@ const HELP = [
   "X-FACTOR — только аналитика ничьих. 🖤💛"
 ].join("\n");
 
-async function sendTelegram(token, chatId, text) {
+async function sendTelegram(token, chatId, text, replyMarkup = KEYBOARD) {
   const response = await fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true }),
+    body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true, reply_markup: replyMarkup }),
     signal: AbortSignal.timeout(10000)
   });
   const result = await response.json();
@@ -138,7 +203,7 @@ export default async function handler(req, res) {
       replyText = WELCOME;
     } else if (command === "/help") {
       replyText = HELP;
-    } else if (command === "/myid") {
+    } else if (command === "/stats" || command === "/history") {\n      try {\n        const predictions = await readForecastHistory();\n        replyText = command === "/stats" ? formatStats(predictions) : formatHistory(predictions);\n      } catch (error) {\n        console.error("Forecast history read failed:", error.message);\n        replyText = "⚠️ Не удалось загрузить историю прогнозов. Попробуй немного позже.";\n      }\n    } else if (command === "/myid") {
       replyText = "Твой Telegram chat ID: " + chatId + "\\nДобавь его в Vercel как XFACTOR_ADMIN_CHAT_ID, чтобы только ты мог запускать ручной анализ.";
     } else if (command === "/scan") {
       const adminChatId = (process.env.XFACTOR_ADMIN_CHAT_ID || "").trim();
