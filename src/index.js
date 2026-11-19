@@ -808,7 +808,8 @@ async function main() {
   }
 
   const historyStats = await updateForecastHistory(completed, picks);
-  console.log("Теневые кандидаты: " + shadowCandidates.length);\n  const shadowStats = await updateShadowHistory(completed, shadowCandidates);
+  console.log("Теневые кандидаты: " + shadowCandidates.length);
+  const shadowStats = await updateShadowHistory(completed, shadowCandidates);
   console.log("Итоговых прогнозов: " + picks.length);
   for (const pick of picks) {
     console.log(pick.homeName + " — " + pick.awayName + ": " +
