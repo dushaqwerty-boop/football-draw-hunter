@@ -202,9 +202,32 @@ export default async function handler(req, res) {
     let replyText;
     if (command === "/start") {
       replyText = WELCOME;
+      try {
+        await fetch("https://api.telegram.org/bot" + token + "/setMyCommands", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ commands: [
+            { command: "start", description: "Открыть главное меню" },
+            { command: "help", description: "Как работает X-FACTOR" },
+            { command: "scan", description: "Запустить анализ" },
+            { command: "stats", description: "Статистика прогнозов" },
+            { command: "history", description: "История прогнозов" }
+          ] }),
+          signal: AbortSignal.timeout(10000)
+        });
+      } catch (error) {
+        console.error("Не удалось обновить меню команд:", error.message);
+      }
     } else if (command === "/help") {
       replyText = HELP;
-    } else if (command === "/stats" || command === "/history") {\n      try {\n        const predictions = await readForecastHistory();\n        replyText = command === "/stats" ? formatStats(predictions) : formatHistory(predictions);\n      } catch (error) {\n        console.error("Forecast history read failed:", error.message);\n        replyText = "⚠️ Не удалось загрузить историю прогнозов. Попробуй немного позже.";\n      }\n    } else if (command === "/myid") {
+    } else if (command === "/stats" || command === "/history") {
+      try {
+        const predictions = await readForecastHistory();
+        replyText = command === "/stats" ? formatStats(predictions) : formatHistory(predictions);
+      } catch (error) {
+        console.error("Forecast history read failed:", error.message);
+        replyText = "⚠️ Не удалось загрузить историю прогнозов. Попробуй немного позже."; 
+      }
       replyText = "Твой Telegram chat ID: " + chatId + "\\nДобавь его в Vercel как XFACTOR_ADMIN_CHAT_ID, чтобы только ты мог запускать ручной анализ.";
     } else if (command === "/scan") {
       const adminChatId = (process.env.XFACTOR_ADMIN_CHAT_ID || "").trim();
