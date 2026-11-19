@@ -22,7 +22,7 @@ const WELCOME = [
   "Будь на шаг впереди! 🖤💛"
 ].join("\n");
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   // Temporary, one-time setup route; removed immediately after webhook registration.
   if (req.method === "GET" && req.query && req.query.setup === "f191cdbd53b8f9e1b0ab1bb5a704812921ca64db29daae81") {
     try {
