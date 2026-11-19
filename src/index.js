@@ -26,10 +26,7 @@ async function fetchJson(url) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: { "User-Agent": "FootballDrawHunter/2.0" }
-    });
+    const response = await fetch(url, { signal: controller.signal });
     if (!response.ok) {
       throw new Error("HTTP " + response.status + " при запросе " + url);
     }
@@ -93,26 +90,24 @@ function parseEvent(event, league) {
 
 async function getLeagueEvents(league, from, to) {
   const all = [];
-  const cursor = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate()));
-  const last = new Date(Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), to.getUTCDate()));
+  const month = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), 1));
+  const lastMonth = new Date(Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), 1));
 
-  // ESPN scoreboard rejects long date windows. Query in seven-day slices.
-  while (cursor <= last) {
-    const chunkEnd = new Date(Math.min(
-      cursor.getTime() + 6 * 24 * 60 * 60 * 1000,
-      last.getTime()
-    ));
+  // ESPN retired YYYYMMDD-YYYYMMDD ranges. Month queries remain supported.
+  while (month <= lastMonth) {
+    const yearMonth = month.getUTCFullYear().toString() +
+      String(month.getUTCMonth() + 1).padStart(2, "0");
     const url = "https://site.api.espn.com/apis/site/v2/sports/soccer/" +
-      league.id + "/scoreboard?dates=" + dateStamp(cursor) + "-" + dateStamp(chunkEnd);
+      league.id + "/scoreboard?dates=" + yearMonth + "&limit=500";
     try {
       const data = await fetchJson(url);
       all.push(...(data.events || []).map(event => parseEvent(event, league)).filter(Boolean));
     } catch (error) {
-      console.error("Лига " + league.id + " (" + dateStamp(cursor) + "): " + error.message);
+      console.error("Лига " + league.id + " (" + yearMonth + "): " + error.message);
     }
-    cursor.setUTCDate(cursor.getUTCDate() + 7);
+    month.setUTCMonth(month.getUTCMonth() + 1);
   }
-  return all;
+  return all.filter(event => event.date >= from && event.date <= to);
 }
 
 function average(values, fallback) {
