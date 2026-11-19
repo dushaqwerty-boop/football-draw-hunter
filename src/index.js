@@ -455,7 +455,8 @@ function formatPick(pick, index) {
 
 async function main() {
   const now = new Date();
-  const testFrom = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);\n  const from = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000);
+  const testFrom = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+  const from = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000);
   const to = new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000);
 
   console.log("Загрузка матчей по " + LEAGUES.length + " турнирам...");
