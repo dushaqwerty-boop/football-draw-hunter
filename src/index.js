@@ -14,7 +14,7 @@ const LEAGUES = [
 ];
 
 const FORM_SIZE = 8;
-const MAX_PICKS = 5;
+const MAX_PICKS = 3;
 const MIN_DRAW_PROBABILITY = 0.265;
 const REQUEST_TIMEOUT_MS = 15000;
 
