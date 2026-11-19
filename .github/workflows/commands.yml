@@ -2,6 +2,11 @@ name: X-FACTOR Telegram Commands
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "src/commands.js"
+      - ".github/workflows/commands.yml"
   schedule:
     - cron: "*/5 * * * *"
 
