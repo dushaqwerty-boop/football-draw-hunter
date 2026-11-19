@@ -1,3 +1,4 @@
+import { readFile, writeFile, mkdir } from "node:fs/promises";
 const TOKEN = (process.env.TELEGRAM_BOT_TOKEN || "").trim();
 const CHAT_ID = (process.env.TELEGRAM_CHAT_ID || "").trim();
 const ODDS_API_KEY = (process.env.ODDS_API_KEY || "").trim();
@@ -16,7 +17,7 @@ const LEAGUES = [
 
 const FORM_SIZE = 8;
 const MAX_PICKS = 3;
-const MIN_DRAW_PROBABILITY = 0.265;
+const MIN_DRAW_PROBABILITY = 0.60;
 const MIN_DATA_RELIABILITY = 55;
 const MIN_EXPECTED_VALUE = 0.03;
 const REQUEST_TIMEOUT_MS = 15000;
@@ -281,6 +282,91 @@ function attachOdds(pick, oddsEvents) {
   };
 }
 
+
+const HISTORY_PATH = "data/forecast-history.json";
+
+async function updateForecastHistory(completed, picks) {
+  await mkdir("data", { recursive: true });
+  let history = { predictions: [] };
+  try {
+    history = JSON.parse(await readFile(HISTORY_PATH, "utf8"));
+    if (!Array.isArray(history.predictions)) history.predictions = [];
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+
+  const completedByKey = new Map(completed.map(match =>
+    [match.leagueId + ":" + match.id, match]
+  ));
+
+  for (const prediction of history.predictions) {
+    if (prediction.status !== "pending") continue;
+    const result = completedByKey.get(prediction.leagueId + ":" + prediction.eventId);
+    if (!result) continue;
+    prediction.status = "settled";
+    prediction.homeScore = result.homeScore;
+    prediction.awayScore = result.awayScore;
+    prediction.actualDraw = result.homeScore === result.awayScore;
+    prediction.settledAt = new Date().toISOString();
+    prediction.profitUnits = Number.isFinite(prediction.drawOdds)
+      ? (prediction.actualDraw ? prediction.drawOdds - 1 : -1)
+      : null;
+  }
+
+  const known = new Set(history.predictions.map(item => item.leagueId + ":" + item.eventId));
+  for (const pick of picks) {
+    const key = pick.leagueId + ":" + pick.id;
+    if (known.has(key)) continue;
+    history.predictions.push({
+      eventId: pick.id,
+      leagueId: pick.leagueId,
+      league: pick.leagueName,
+      home: pick.homeName,
+      away: pick.awayName,
+      kickoff: pick.date.toISOString(),
+      probability: pick.probability,
+      reliability: pick.reliability.score,
+      drawOdds: pick.odds?.bestDrawOdds ?? null,
+      bookmaker: pick.odds?.bestBookmaker ?? null,
+      status: "pending",
+      recordedAt: new Date().toISOString()
+    });
+    known.add(key);
+  }
+
+  history.updatedAt = new Date().toISOString();
+  await writeFile(HISTORY_PATH, JSON.stringify(history, null, 2) + "\n", "utf8");
+
+  const settled = history.predictions.filter(item => item.status === "settled");
+  const wins = settled.filter(item => item.actualDraw).length;
+  const quoted = settled.filter(item => Number.isFinite(item.profitUnits));
+  const profit = quoted.reduce((sum, item) => sum + item.profitUnits, 0);
+  const roi = quoted.length ? profit / quoted.length * 100 : null;
+  return {
+    total: history.predictions.length,
+    settled: settled.length,
+    pending: history.predictions.filter(item => item.status === "pending").length,
+    wins,
+    hitRate: settled.length ? wins / settled.length * 100 : null,
+    quotedSettled: quoted.length,
+    profit,
+    roi
+  };
+}
+
+function formatHistoryStats(stats) {
+  return [
+    "📚 История прогнозов",
+    "Всего записано: " + stats.total + " | ожидают результата: " + stats.pending,
+    "Завершено: " + stats.settled +
+      (stats.hitRate === null ? "" : " | ничьи: " + stats.wins +
+        " (" + stats.hitRate.toFixed(1).replace(".", ",") + "%)"),
+    "ROI по прогнозам с сохранённым коэффициентом: " +
+      (stats.roi === null ? "пока недостаточно завершённых матчей" :
+        (stats.roi >= 0 ? "+" : "") + stats.roi.toFixed(1).replace(".", ",") + "%")
+  ].join("\n");
+}
+
 function formatDate(date) {
   return new Intl.DateTimeFormat("ru-RU", {
     timeZone: "Europe/Riga",
@@ -339,6 +425,7 @@ async function main() {
   const completed = allEvents.filter(event =>
     event.completed && event.homeScore !== null && event.awayScore !== null
   );
+  const historyBeforePicks = await updateForecastHistory(completed, []);
   const upcoming = allEvents.filter(event =>
     !event.completed && event.date > now && event.date <= to
   );
@@ -387,6 +474,7 @@ async function main() {
     picks = statisticalCandidates.slice(0, MAX_PICKS);
   }
 
+  const historyStats = await updateForecastHistory(completed, picks);
   console.log("Итоговых прогнозов: " + picks.length);
   for (const pick of picks) {
     console.log(pick.homeName + " — " + pick.awayName + ": " +
@@ -407,7 +495,7 @@ async function main() {
         (MIN_EXPECTED_VALUE * 100).toFixed(0) +
         "% по доступной котировке. Это не сигнал к ставке."
       : "Сегодня сильных кандидатов по заданным критериям нет.";
-    await sendTelegram(header + reason + "\n\n" +
+    await sendTelegram(header + reason + "\n\n" + formatHistoryStats(historyStats) + "\n\n" +
       "Бот не будет выдавать матч без подтверждённой ценовой выгоды за готовый прогноз. Попробуем снова при следующем запуске.\n\n" +
       "Фильтры: вероятность ничьей от " + (MIN_DRAW_PROBABILITY * 100).toFixed(1) +
       "%; покрытие данных от " + MIN_DATA_RELIABILITY +
@@ -420,7 +508,7 @@ async function main() {
     "Справедливый коэффициент = 1 / вероятность модели; ориентир от 5% запаса — только фильтр, не live-коэффициент букмекера. " +
     "Сравни его с актуальным коэффициентом и учитывай маржу букмекера.\n" +
     "⚠️ Модель не откалибрована и не гарантирует результат. Проверяй составы, травмы и мотивацию.";
-  await sendTelegram(header + "Найдено кандидатов: " + picks.length + "\n\n" + body + footer);
+  await sendTelegram(header + "Найдено кандидатов: " + picks.length + "\n\n" + body + "\n\n" + formatHistoryStats(historyStats) + footer);
 }
 
 main().catch(async error => {
