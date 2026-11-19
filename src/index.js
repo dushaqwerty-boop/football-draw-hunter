@@ -437,6 +437,32 @@ async function updateForecastHistory(completed, picks) {
   };
 }
 
+function calibrationBins(items, probabilityKey) {
+  const ranges = [
+    { min: 0, max: 0.30, label: "до 30%" },
+    { min: 0.30, max: 0.35, label: "30–35%" },
+    { min: 0.35, max: 0.40, label: "35–40%" },
+    { min: 0.40, max: 0.45, label: "40–45%" },
+    { min: 0.45, max: 0.50, label: "45–50%" },
+    { min: 0.50, max: 0.55, label: "50–55%" },
+    { min: 0.55, max: 0.60, label: "55–60%" },
+    { min: 0.60, max: 1.001, label: "60%+" }
+  ];
+  return ranges.map(range => {
+    const sample = items.filter(item =>
+      item[probabilityKey] >= range.min && item[probabilityKey] < range.max
+    );
+    return {
+      label: range.label,
+      count: sample.length,
+      meanProbability: sample.length
+        ? average(sample.map(item => item[probabilityKey]), null) : null,
+      drawRate: sample.length
+        ? average(sample.map(item => item.actual), null) : null
+    };
+  });
+}
+
 function runHistoricalBacktest(completed, testFrom) {
   const sorted = [...completed].sort((a, b) => a.date - b.date);
   const evaluated = [];
@@ -478,9 +504,14 @@ function runHistoricalBacktest(completed, testFrom) {
     (item.adjustedProbability - item.actual) ** 2), null);
   const adjustedAt45 = evaluated.filter(item => item.adjustedProbability >= 0.45);
   const adjustedWinsAt45 = adjustedAt45.filter(item => item.actual === 1).length;
+
   return {
     evaluated: evaluated.length,
     thresholds,
+    calibration: {
+      baseline: calibrationBins(evaluated, "probability"),
+      opponentAdjusted: calibrationBins(evaluated, "adjustedProbability")
+    },
     opponentAdjustment: {
       baselineBrier,
       adjustedBrier,
@@ -494,34 +525,38 @@ function runHistoricalBacktest(completed, testFrom) {
   };
 }
 function formatBacktest(stats) {
+  const formatCalibration = (title, bins) => [
+    title,
+    "Диапазон | матчей | средняя оценка | фактические ничьи",
+    ...bins.map(bin =>
+      bin.label + " | " + bin.count + " | " +
+      (bin.meanProbability === null ? "н/д" :
+        (bin.meanProbability * 100).toFixed(1).replace(".", ",") + "%") + " | " +
+      (bin.drawRate === null ? "н/д" :
+        (bin.drawRate * 100).toFixed(1).replace(".", ",") + "%") +
+      (bin.count > 0 && bin.count < 20 ? " ⚠️ мало данных" : "")
+    )
+  ];
+
   return [
     "🧪 Историческая проверка модели (последние 180 дней; только матчи с покрытием от " +
       MIN_DATA_RELIABILITY + "/100)",
     "Матчей, которые можно было оценить: " + stats.evaluated,
-    "Порог | выборка | ничьи | Brier score",
-    ...stats.thresholds.map(item =>
-      (item.threshold * 100).toFixed(0) + "% | " + item.count + " | " +
-      (item.hitRate === null ? "н/д" : item.wins + " (" +
-        item.hitRate.toFixed(1).replace(".", ",") + "%)") + " | " +
-      (item.brier === null ? "н/д" : item.brier.toFixed(3))
-    ),
-    "Проверка силы соперников (та же выборка):",
-    "Brier без поправки: " + (stats.opponentAdjustment.baselineBrier === null
-      ? "н/д" : stats.opponentAdjustment.baselineBrier.toFixed(4)),
-    "Brier с поправкой: " + (stats.opponentAdjustment.adjustedBrier === null
-      ? "н/д" : stats.opponentAdjustment.adjustedBrier.toFixed(4)),
-    "Изменение Brier (ниже — лучше): " +
+    ...formatCalibration("Калибровка исходной модели:", stats.calibration.baseline),
+    ...formatCalibration("Калибровка с поправкой на силу соперников:", stats.calibration.opponentAdjusted),
+    "Brier score по всей выборке — исходная: " +
+      (stats.opponentAdjustment.baselineBrier === null
+        ? "н/д" : stats.opponentAdjustment.baselineBrier.toFixed(4)),
+    "Brier score с поправкой: " +
+      (stats.opponentAdjustment.adjustedBrier === null
+        ? "н/д" : stats.opponentAdjustment.adjustedBrier.toFixed(4)),
+    "Разница Brier (отрицательная — лучше): " +
       (stats.opponentAdjustment.deltaBrier === null
         ? "н/д" : (stats.opponentAdjustment.deltaBrier > 0 ? "+" : "") +
           stats.opponentAdjustment.deltaBrier.toFixed(4)),
-    "С поправкой при пороге 45%: " + stats.opponentAdjustment.adjustedAt45Count +
-      " матчей; ничьих: " + (stats.opponentAdjustment.adjustedAt45HitRate === null
-        ? "н/д" : stats.opponentAdjustment.adjustedAt45Wins + " (" +
-          stats.opponentAdjustment.adjustedAt45HitRate.toFixed(1).replace(".", ",") + "%)"),
-    "Это ретротест модели, не гарантия будущей доходности; исторические коэффициенты здесь не учитываются."
+    "Это ретротест, не гарантия будущей доходности; исторические букмекерские коэффициенты не учитываются."
   ].join("\n");
 }
-
 function formatDiagnostics(stats) {
   return [
     "🔬 Диагностика отбора матчей",
