@@ -66,7 +66,7 @@ jobs:
               if (!previous || (previous.status !== "settled" && item.status === "settled")) merged.set(key, item);
             }
             const output = { [collection]: [...merged.values()], updatedAt: new Date().toISOString() };
-            await writeFile(path, JSON.stringify(output, null, 2) + "\\n");
+            await writeFile(path, JSON.stringify(output, null, 2) + "\n");
           }
           NODE
           git add data/forecast-history.json data/shadow-history.json
