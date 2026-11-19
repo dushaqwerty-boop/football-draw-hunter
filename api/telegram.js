@@ -87,20 +87,45 @@ export default async function handler(req, res) {
     const token = process.env.TELEGRAM_BOT_TOKEN;
     if (!token) throw new Error("TELEGRAM_BOT_TOKEN is not configured");
 
-    const response = await fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: WELCOME,
-        disable_web_page_preview: true
-      })
-    });
-    const result = await response.json();
-    if (!response.ok || !result.ok) {
-      console.error("Telegram sendMessage failed:", result.description || response.status);
+    const payload = {
+      chat_id: chatId,
+      text: WELCOME,
+      disable_web_page_preview: true
+    };
+
+    let delivered = false;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const response = await fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(10000)
+        });
+        const result = await response.json();
+        if (response.ok && result.ok) {
+          console.info("Telegram welcome message sent successfully");
+          delivered = true;
+          break;
+        }
+        console.error("Telegram sendMessage rejected:", {
+          attempt,
+          status: response.status,
+          description: result.description || "Unknown Telegram API error"
+        });
+        if (response.status < 500 && response.status !== 429) break;
+      } catch (error) {
+        console.error("Telegram sendMessage network error:", {
+          attempt,
+          message: error.message,
+          cause: error.cause ? String(error.cause) : null
+        });
+      }
+    }
+    if (!delivered) {
+      console.error("Telegram welcome message was not delivered after retries");
     }
   } catch (error) {
-    console.error("Webhook handler error:", error.message);
+    console.error("Webhook handler error:", error.message, error.cause ? String(error.cause) : "");
   }
 };
