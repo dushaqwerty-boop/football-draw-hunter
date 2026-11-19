@@ -189,7 +189,8 @@ export default async function handler(req, res) {
     return;
   }
 
-  const command = messageText.split(/\\s+/)[0].split("@")[0].toLowerCase();
+  const normalizedText = BUTTON_COMMANDS.get(messageText) || messageText;
+  const command = normalizedText.split(/\s+/)[0].split("@")[0].toLowerCase();
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) {
     console.error("TELEGRAM_BOT_TOKEN is not configured");
