@@ -242,7 +242,12 @@ async function main() {
     .sort((a, b) => b.probability - a.probability)
     .slice(0, MAX_PICKS);
 
-  console.log("Кандидатов после статистической фильтрации: " + picks.length);\n  for (const pick of picks) {\n    console.log(pick.homeName + " — " + pick.awayName + ": " + (pick.probability * 100).toFixed(1) + "%");\n  }\n\n  const header = "⚽ FOOTBALL DRAW HUNTER\n" +
+  console.log("Кандидатов после статистической фильтрации: " + picks.length);
+  for (const pick of picks) {
+    console.log(pick.homeName + " — " + pick.awayName + ": " + (pick.probability * 100).toFixed(1) + "%");
+  }
+
+  const header = "⚽ FOOTBALL DRAW HUNTER\n" +
     "Анализ на ближайшие 10 дней\n" +
     "Турниров проверено: " + LEAGUES.length + "\n" +
     "Завершённых матчей в базе: " + completed.length + "\n\n";
