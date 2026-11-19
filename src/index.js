@@ -137,6 +137,7 @@ function teamForm(teamId, side, results) {
   const venueMatches = all.filter(match => match.venue === side);
   return {
     matches: all.length,
+    venueMatches: venueMatches.length,
     scored: average(all.map(match => match.scored), 1.25),
     conceded: average(all.map(match => match.conceded), 1.25),
     venueScored: average(venueMatches.map(match => match.scored), average(all.map(match => match.scored), 1.25)),
@@ -157,6 +158,20 @@ function drawProbability(homeExpected, awayExpected) {
     probability += poisson(homeExpected, goals) * poisson(awayExpected, goals);
   }
   return probability;
+}
+
+function dataReliability(home, away) {
+  // This is a data-coverage indicator, not a calibrated probability of a correct prediction.
+  const matchCoverage = (home.matches / FORM_SIZE + away.matches / FORM_SIZE) / 2;
+  const venueCoverage = (
+    Math.min(home.venueMatches, 4) / 4 +
+    Math.min(away.venueMatches, 4) / 4
+  ) / 2;
+  const score = Math.round(100 * (0.6 * matchCoverage + 0.4 * venueCoverage));
+  return {
+    score,
+    label: score >= 75 ? "повышенная" : score >= 55 ? "средняя" : "низкая"
+  };
 }
 
 function analyseMatch(match, results) {
@@ -183,7 +198,8 @@ function analyseMatch(match, results) {
     away,
     homeExpected,
     awayExpected,
-    probability: Math.max(0, Math.min(0.65, adjusted))
+    probability: Math.max(0, Math.min(0.65, adjusted)),
+    reliability: dataReliability(home, away)
   };
 }
 
@@ -200,14 +216,20 @@ function formatDate(date) {
 function formatPick(pick, index) {
   const percent = (pick.probability * 100).toFixed(1).replace(".", ",");
   const xg = pick.homeExpected.toFixed(2) + " : " + pick.awayExpected.toFixed(2);
+  const fairOdds = (1 / pick.probability).toFixed(2);
+  const valueOdds = (1 / (pick.probability * 0.95)).toFixed(2);
   return [
     (index + 1) + ". " + pick.homeName + " — " + pick.awayName,
     "🏆 " + pick.leagueName + " | " + formatDate(pick.date) + " (Рига)",
     "📊 Расчётная вероятность ничьей: " + percent + "%",
     "⚽ Ожидаемые голы модели: " + xg,
+    "🧾 Покрытие данными: " + pick.reliability.score + "/100 (" + pick.reliability.label + ")",
+    "📐 Справедливый коэффициент модели: " + fairOdds,
+    "🎯 Ориентир для запаса 5%: от " + valueOdds,
     "Форма (5 матчей): " + pick.homeName + " " + (pick.home.form || "н/д") +
       " | " + pick.awayName + " " + (pick.away.form || "н/д"),
-    "Сыграно в выборке: " + pick.home.matches + " / " + pick.away.matches,
+    "Сыграно в выборке: " + pick.home.matches + " / " + pick.away.matches +
+      " | дома/в гостях: " + pick.home.venueMatches + " / " + pick.away.venueMatches,
     pick.link
   ].filter(Boolean).join("\n");
 }
@@ -261,8 +283,10 @@ async function main() {
   }
 
   const body = picks.map(formatPick).join("\n\n────────────────\n\n");
-  const footer = "\n\n⚠️ Это математическая оценка по доступной статистике, а не гарантия результата. " +
-    "Перед ставкой проверяй составы, травмы, мотивацию и коэффициент букмекера.";
+  const footer = "\n\nℹ️ Покрытие данными показывает полноту выборки, а не шанс прохода прогноза. " +
+    "Справедливый коэффициент = 1 / вероятность модели; ориентир от 5% запаса — только фильтр, не live-коэффициент букмекера. " +
+    "Сравни его с актуальным коэффициентом и учитывай маржу букмекера.\n" +
+    "⚠️ Модель не откалибрована и не гарантирует результат. Проверяй составы, травмы и мотивацию.";
   await sendTelegram(header + "Найдено кандидатов: " + picks.length + "\n\n" + body + footer);
 }
 
