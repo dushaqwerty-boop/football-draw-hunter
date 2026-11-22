@@ -33,9 +33,26 @@
       "kickoff": "2026-11-21T17:30:00.000Z",
       "probability": 0.3183150033925345,
       "reliability": 100,
+      "status": "settled",
+      "recordedAt": "2026-11-19T18:30:56.696Z",
+      "homeScore": 1,
+      "awayScore": 1,
+      "actualDraw": true,
+      "settledAt": "2026-11-22T13:16:40.515Z",
+      "brier": 0.46469443459972026
+    },
+    {
+      "eventId": "401882801",
+      "leagueId": "esp.1",
+      "league": "Испания — Ла Лига",
+      "home": "Osasuna",
+      "away": "Málaga",
+      "kickoff": "2026-11-22T17:30:00.000Z",
+      "probability": 0.3020937480469468,
+      "reliability": 100,
       "status": "pending",
-      "recordedAt": "2026-11-19T18:30:56.696Z"
+      "recordedAt": "2026-11-22T13:16:40.515Z"
     }
   ],
-  "updatedAt": "2026-11-21T14:28:44.953Z"
+  "updatedAt": "2026-11-22T13:16:41.312Z"
 }
