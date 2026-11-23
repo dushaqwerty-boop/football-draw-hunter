@@ -21,8 +21,13 @@
       "kickoff": "2026-11-22T16:30:00.000Z",
       "probability": 0.3253739660616299,
       "reliability": 100,
-      "status": "pending",
-      "recordedAt": "2026-11-19T18:30:56.696Z"
+      "status": "settled",
+      "recordedAt": "2026-11-19T18:30:56.696Z",
+      "homeScore": 4,
+      "awayScore": 0,
+      "actualDraw": false,
+      "settledAt": "2026-11-23T17:49:17.522Z",
+      "brier": 0.10586821779067468
     },
     {
       "eventId": "401882797",
@@ -50,9 +55,38 @@
       "kickoff": "2026-11-22T17:30:00.000Z",
       "probability": 0.3020937480469468,
       "reliability": 100,
+      "status": "settled",
+      "recordedAt": "2026-11-22T13:16:40.515Z",
+      "homeScore": 1,
+      "awayScore": 0,
+      "actualDraw": false,
+      "settledAt": "2026-11-23T17:49:17.522Z",
+      "brier": 0.09126063260905216
+    },
+    {
+      "eventId": "401878751",
+      "leagueId": "eng.1",
+      "league": "Англия — Премьер-лига",
+      "home": "Aston Villa",
+      "away": "Everton",
+      "kickoff": "2026-12-02T20:15:00.000Z",
+      "probability": 0.3098571472862633,
+      "reliability": 100,
       "status": "pending",
-      "recordedAt": "2026-11-22T13:16:40.515Z"
+      "recordedAt": "2026-11-23T17:49:17.522Z"
+    },
+    {
+      "eventId": "401879225",
+      "leagueId": "eng.1",
+      "league": "Англия — Премьер-лига",
+      "home": "Nottingham Forest",
+      "away": "Chelsea",
+      "kickoff": "2026-11-27T20:00:00.000Z",
+      "probability": 0.3018757618031942,
+      "reliability": 90,
+      "status": "pending",
+      "recordedAt": "2026-11-23T17:49:17.522Z"
     }
   ],
-  "updatedAt": "2026-11-22T14:24:56.523Z"
+  "updatedAt": "2026-11-23T17:49:18.225Z"
 }
