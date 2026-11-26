@@ -98,7 +98,31 @@
       "reliability": 100,
       "status": "pending",
       "recordedAt": "2026-11-24T17:22:23.752Z"
+    },
+    {
+      "eventId": "401884711",
+      "leagueId": "ger.1",
+      "league": "Германия — Бундеслига",
+      "home": "Schalke 04",
+      "away": "Borussia Dortmund",
+      "kickoff": "2026-12-06T14:30:00.000Z",
+      "probability": 0.3808884332618734,
+      "reliability": 100,
+      "status": "pending",
+      "recordedAt": "2026-11-26T16:42:19.177Z"
+    },
+    {
+      "eventId": "401879212",
+      "leagueId": "eng.1",
+      "league": "Англия — Премьер-лига",
+      "home": "Everton",
+      "away": "Fulham",
+      "kickoff": "2026-12-06T14:00:00.000Z",
+      "probability": 0.3130019489177275,
+      "reliability": 95,
+      "status": "pending",
+      "recordedAt": "2026-11-26T16:42:19.177Z"
     }
   ],
-  "updatedAt": "2026-11-25T17:00:25.113Z"
+  "updatedAt": "2026-11-26T16:42:19.965Z"
 }
